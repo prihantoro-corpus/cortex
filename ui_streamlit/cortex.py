@@ -265,6 +265,18 @@ from core.visualiser.styles import POS_COLOR_MAP
 
 # Main Layout
 def main():
+    st.markdown(
+        """
+        <div style="text-align: right; margin-bottom: 0.5rem;">
+            <a href="http://www.cortex-app.org/" target="_blank"
+               style="color:#00FFF5; font-weight:700; text-decoration:none;">
+                📘 Manual
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("## CORTEX: Advanced Corpus Query System")
     
     # Render Sidebar and get current view
@@ -290,3 +302,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
