@@ -5,7 +5,7 @@ type: software
 
 authors:
   - family-names: Prihantoro
-    given-names: Prihantoro
+    given-names: 
     affiliation: Universitas Diponegoro
 
 version: 1.0.0
