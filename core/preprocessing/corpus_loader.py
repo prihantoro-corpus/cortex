@@ -341,60 +341,59 @@ def load_excel_parallel_corpus_file(file_source, excel_format):
     }
 
 def load_built_in_corpus(name, url, progress_callback=None):
-    """Downloads or loads a built-in corpus."""
-    # name is the display name (key in BUILT_IN_CORPORA)
-    # url is the value (filename or URL)
-    
-    filename = url
-    
-    # Check if local file exists
-    local_path = os.path.join(CORPORA_DIR, filename)
-    use_local = os.path.exists(local_path)
+    """Downloads or loads one or more built-in corpora."""
+    # Support both single and multiple corpora
+    if isinstance(name, str):
+        names = [name]
+        urls = [url]
+    else:
+        names = name
+        urls = url
+
+    file_sources = []
     
     try:
-        file_source = None
-        
-        if use_local:
-            if progress_callback:
-                progress_callback(0.05, f"Loading local {name}...")
+        for idx, (corpus_name, corpus_url) in enumerate(zip(names, urls)):
+            filename = corpus_url
+            local_path = os.path.join(CORPORA_DIR, filename)
+            use_local = os.path.exists(local_path)
             
-            # Read local file
-            with open(local_path, 'rb') as f:
-                file_bytes = f.read()
-                file_source = io.BytesIO(file_bytes)
-                file_source.name = filename
-                
-        else:
-             # Fallback to URL download if it looks like a URL
-            if filename.startswith("http"):
+            if use_local:
                 if progress_callback:
-                    progress_callback(0.05, f"Downloading {name}...")
-                
-                response = requests.get(filename, timeout=60)
-                response.raise_for_status()
-                
-                file_bytes = response.content
-                file_source = io.BytesIO(file_bytes)
-                file_source.name = filename.split('/')[-1]
+                    progress_callback(0.05 + (idx/len(names))*0.2, f"Loading local {corpus_name}...")
+                with open(local_path, 'rb') as f:
+                    file_bytes = f.read()
+                    fs = io.BytesIO(file_bytes)
+                    fs.name = filename
+                    file_sources.append(fs)
             else:
-                 return {'error': f"File not found locally in {CORPORA_DIR} and is not a URL: {filename}"}
-        
-        # Determine format (rough guess if not provided)
+                if filename.startswith("http"):
+                    if progress_callback:
+                        progress_callback(0.05 + (idx/len(names))*0.2, f"Downloading {corpus_name}...")
+                    response = requests.get(filename, timeout=60)
+                    response.raise_for_status()
+                    file_bytes = response.content
+                    fs = io.BytesIO(file_bytes)
+                    fs.name = filename.split('/')[-1]
+                    file_sources.append(fs)
+                else:
+                    return {'error': f"File not found locally in {CORPORA_DIR} and is not a URL: {filename}"}
+
+        if not file_sources:
+            return {'error': "No corpora files could be loaded."}
+
+        # Determine format (use XML if any are XML)
         fmt = '.txt / auto'
-        if file_source.name.lower().endswith('.xml'):
+        if any(fs.name.lower().endswith('.xml') for fs in file_sources):
             fmt = 'XML (Tagged)' 
-        elif 'europarl' in name.lower():
+        elif any('europarl' in n.lower() for n in names):
             fmt = 'verticalised (T/P/L)'
 
-        result = load_monolingual_corpus_files([file_source], 'en', fmt, progress_callback=progress_callback)
-        
-        # Tagset loading is already handled inside load_monolingual_corpus_files now, 
-        # but only based on filename.
-        
+        result = load_monolingual_corpus_files(file_sources, 'en', fmt, progress_callback=progress_callback)
         return result
         
     except Exception as e:
-        return {'error': f"Failed to load built-in {name}: {e}"}
+        return {'error': f"Failed to load built-in corpora: {e}"}
 
 def _load_local_tagset(db_path, corpus_filename):
     """

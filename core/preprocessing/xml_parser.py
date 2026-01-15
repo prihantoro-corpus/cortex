@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 import re
+import pandas as pd
 try:
     from lxml import etree as LXML_ET
     HAS_LXML = True
@@ -108,25 +109,43 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
         detected_attrs[k].add(v)
 
     elements_to_process = []
-    containers = root.findall('.//document') or root.findall('.//doc') or root.findall('.//corpus') or root.findall('.//text')
     
-    if containers:
-        for container in containers:
-            cont_attrs = {k: v for k, v in container.attrib.items() if k.lower() not in excluded_attrs}
-            for k, v in cont_attrs.items():
-                if k not in detected_attrs: detected_attrs[k] = set()
-                detected_attrs[k].add(v)
+    # Stratified search for sentence-like units
+    # Pass 1: Explicit sentence tags (Most granular, preferred)
+    pass1_tags = {'sent', 's', 'u', 'utterance'}
+    # Pass 2: Paragraph/Block tags (If no sentences found)
+    pass2_tags = {'p', 'para', 'ab', 'div'} # div is broad but often used as unit if no p/s
+    # Pass 3: Document/Text tags (Last resort, preserve attributes even if large unit)
+    pass3_tags = {'text'}
+
+    def traverse_and_collect(element, current_attrs, target_tags):
+        new_attrs = current_attrs.copy()
+        new_attrs.update({k: v for k, v in element.attrib.items() if k.lower() not in excluded_attrs})
+        
+        if element.tag in target_tags:
+            elements_to_process.append((element, new_attrs))
+            # optimization: if we found a target unit, we stop descending *into* it for MORE units 
+            # (assuming flat hierarchy of units). 
+            # Note: If <text> contains <s>, Pass 1 catches <s> (element.tag=s).
+            # If Pass 3, target=text. We catch <text>. We stop.
+            return 
+        
+        for child in element:
+            traverse_and_collect(child, new_attrs, target_tags)
             
-            sents = container.findall('.//sent') or container.findall('.//s')
-            if not sents: sents = [container]
-            for s in sents: elements_to_process.append((s, cont_attrs))
-    else:
-        sents = root.findall('.//sent') or root.findall('.//s')
-        if not sents: sents = list(root)
-        for s in sents: elements_to_process.append((s, {}))
+    # Execute Pass 1
+    traverse_and_collect(root, {}, pass1_tags)
+    
+    # If no units found, try Pass 2
+    if not elements_to_process:
+        traverse_and_collect(root, {}, pass2_tags)
+        
+    # If still no units found, try Pass 3
+    if not elements_to_process:
+         traverse_and_collect(root, {}, pass3_tags)
 
     if not elements_to_process:
-        # Fallback to pure text
+        # Fallback to pure text (Unstructured blob)
         raw_sentence_text = "".join(root.itertext()).strip() 
         if raw_sentence_text:
             cleaned_text = re.sub(r'([^\w\s])', r' \1 ', raw_sentence_text) 
@@ -142,13 +161,11 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
 
     sequential_id_counter = 0
 
-    for sent_elem, parent_level_attrs in elements_to_process:
-        sent_attrs = {k: v for k, v in sent_elem.attrib.items() if k.lower() not in excluded_attrs}
-        for k, v in sent_attrs.items():
+    for sent_elem, combined_row_attrs in elements_to_process:
+        for k, v in combined_row_attrs.items():
             if k not in detected_attrs: detected_attrs[k] = set()
             detected_attrs[k].add(v)
-            
-        combined_row_attrs = {**base_root_attrs, **parent_level_attrs, **sent_attrs}
+
         
         sent_id_str = sent_elem.get('n') or sent_elem.get('id')
         sent_id = None

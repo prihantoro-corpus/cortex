@@ -196,3 +196,109 @@ def generate_keyword_list(target_db_path, ref_db_path=None, target_xml_where="",
     except Exception as e:
         print(f"Keyword calc error: {e}")
         return pd.DataFrame()
+
+def generate_grouped_keyword_list(target_db_path, group_by_col, ref_db_path=None, target_xml_where="", target_xml_params=[], ref_xml_where="", ref_xml_params=[], min_freq=3, ref_freq_df=None, ref_total_tokens=0):
+    """
+    Generates a dictionary of keyword lists, grouped by a specific column (e.g., filename, author).
+    Returns: { 'group_value': pd.DataFrame }
+    """
+    if not target_db_path or not group_by_col:
+        return {}
+
+    results = {}
+    
+    try:
+        con_t = duckdb.connect(target_db_path, read_only=True)
+        
+        # 1. Get Distinct Groups
+        # Verify column exists first
+        try:
+             con_t.execute(f"SELECT {group_by_col} FROM corpus LIMIT 1")
+        except:
+             print(f"Column {group_by_col} not found in corpus.")
+             con_t.close()
+             return {}
+
+        groups = [r[0] for r in con_t.execute(f"SELECT DISTINCT {group_by_col} FROM corpus WHERE {group_by_col} IS NOT NULL").fetchall()]
+    
+        # 2. Get Global Reference Counts (Once)
+        if ref_freq_df is not None:
+            df_ref = ref_freq_df.copy()
+            total_ref = ref_total_tokens if ref_total_tokens > 0 else df_ref['freq'].sum()
+        else:
+            con_r = duckdb.connect(ref_db_path, read_only=True)
+            sql_r = f"""
+            SELECT _token_low as token, count(*) as freq 
+            FROM corpus 
+            WHERE NOT regexp_matches(_token_low, '^[[:punct:]]+$') 
+              AND NOT regexp_matches(_token_low, '^[0-9]+$')
+              {ref_xml_where}
+            GROUP BY 1
+            """
+            df_ref = con_r.execute(sql_r, ref_xml_params).fetch_df()
+            
+            if ref_xml_where:
+                total_ref = con_r.execute(f"SELECT count(*) FROM corpus WHERE 1=1 {ref_xml_where}", ref_xml_params).fetchone()[0]
+            else:
+                total_ref = con_r.execute("SELECT count(*) FROM corpus").fetchone()[0]
+            con_r.close()
+
+        # 3. Iterate Groups
+        for group_val in groups:
+            # Safe parameterization for group value
+            # We append the group condition to the existing XML where clause
+            group_where = f" AND {group_by_col} = ?"
+            full_where = target_xml_where + group_where
+            full_params = target_xml_params + [group_val]
+            
+            sql_t = f"""
+            SELECT _token_low as token, count(*) as freq 
+            FROM corpus 
+            WHERE NOT regexp_matches(_token_low, '^[[:punct:]]+$') 
+              AND NOT regexp_matches(_token_low, '^[0-9]+$')
+              {full_where}
+            GROUP BY 1
+            HAVING count(*) >= ?
+            """
+            
+            df_target = con_t.execute(sql_t, full_params + [min_freq]).fetch_df()
+            
+            if df_target.empty:
+                continue
+                
+            total_target = con_t.execute(f"SELECT count(*) FROM corpus WHERE 1=1 {full_where}", full_params).fetchone()[0]
+            
+            # Merge and Calculate
+            merged = pd.merge(df_target, df_ref, on='token', how='outer', suffixes=('_t', '_r'))
+            merged['freq_t'] = merged['freq_t'].fillna(0)
+            merged['freq_r'] = merged['freq_r'].fillna(0)
+            
+            O1 = merged['freq_t']
+            O2 = merged['freq_r']
+            N1 = total_target
+            N2 = total_ref
+            
+            E1 = N1 * (O1 + O2) / (N1 + N2)
+            E2 = N2 * (O1 + O2) / (N1 + N2)
+            
+            with np.errstate(divide='ignore', invalid='ignore'):
+                term1 = np.where(O1 > 0, O1 * np.log(O1/E1), 0)
+                term2 = np.where(O2 > 0, O2 * np.log(O2/E2), 0)
+                merged['LL'] = 2 * (term1 + term2)
+                
+                rel_t_smooth = (O1 + 0.5) / (N1 + 0.5)
+                rel_r_smooth = (O2 + 0.5) / (N2 + 0.5)
+                merged['LogRatio'] = np.log2(rel_t_smooth / rel_r_smooth)
+            
+            merged['Significance'] = merged['LL'].apply(vec_sig)
+            merged['Type'] = np.where(merged['LogRatio'] > 0, 'Positive', 'Negative')
+            merged = merged.sort_values("LL", ascending=False)
+            
+            results[group_val] = merged
+            
+        con_t.close()
+        return results
+        
+    except Exception as e:
+        print(f"Grouped Keyword Gen Error: {e}")
+        return {}
