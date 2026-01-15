@@ -15,4 +15,6 @@ nltk>=3.8.1
 scikit-learn>=1.4.0
 bertopic>=0.16.0
 sentence-transformers>=2.2.0
+eng_to_ipa
+duckdb
 plotly>=5.19.0
