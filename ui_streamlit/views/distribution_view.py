@@ -52,7 +52,7 @@ def render_distribution_view():
                      # Execute Logic directly
                      with st.spinner(f"Calculating distribution for '{term}'..."):
                          # Basic default restrictions
-                         xml_filters = render_xml_restriction_filters(corpus_path, "distribution")
+                         xml_filters = render_xml_restriction_filters(corpus_path, "distribution", corpus_name=corpus_name)
                          xml_where, xml_params = apply_xml_restrictions(xml_filters)
                          
                          dist_df, meta_dists = calculate_distribution(corpus_path, term, xml_where, xml_params)
@@ -87,16 +87,16 @@ def render_distribution_view():
 
     # --- XML Restriction Filters ---
     if not comp_mode:
-        xml_filters = render_xml_restriction_filters(corpus_path, "distribution")
+        xml_filters = render_xml_restriction_filters(corpus_path, "distribution", corpus_name=corpus_name)
         xml_where, xml_params = apply_xml_restrictions(xml_filters)
     else:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            xml_filters_1 = render_xml_restriction_filters(corpus_path, "distribution_c1")
+            xml_filters_1 = render_xml_restriction_filters(corpus_path, "distribution_c1", corpus_name=corpus_name)
             xml_where_1, xml_params_1 = apply_xml_restrictions(xml_filters_1)
         with col_f2:
             if comp_path:
-                xml_filters_2 = render_xml_restriction_filters(comp_path, "distribution_c2")
+                xml_filters_2 = render_xml_restriction_filters(comp_path, "distribution_c2", corpus_name=comp_name)
                 xml_where_2, xml_params_2 = apply_xml_restrictions(xml_filters_2)
             else:
                 st.info("Load a comparison corpus in sidebar.")

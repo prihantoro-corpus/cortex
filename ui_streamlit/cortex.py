@@ -169,6 +169,21 @@ st.markdown(f"""
         background-color: {PRIMARY_COLOR} !important;
         color: white !important;
     }}
+    
+    /* Multiselect Styling */
+    .stMultiSelect [data-baseweb="tag"] {{
+        background-color: {PRIMARY_COLOR} !important;
+        color: #FFFFFF !important;
+    }}
+    .stMultiSelect [data-baseweb="tag"] span {{
+        color: #FFFFFF !important;
+    }}
+    .stMultiSelect div[data-baseweb="select"] {{
+        background-color: #1e293b !important;
+    }}
+    .stMultiSelect input {{
+        color: #FFFFFF !important;
+    }}
 
     /* Icons and Indicators */
     div[data-baseweb="select"] svg, 
@@ -302,4 +317,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

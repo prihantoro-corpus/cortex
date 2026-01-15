@@ -2,7 +2,7 @@ import streamlit as st
 import duckdb
 from core.preprocessing.xml_parser import get_xml_attribute_columns, is_integer_col
 
-def render_xml_restriction_filters(db_path, view_name):
+def render_xml_restriction_filters(db_path, view_name, corpus_name=None):
     """
     Dynamically renders UI filters for XML attributes found in the DuckDB corpus.
     Returns a dictionary of selected values: {attribute_name: {'type': 'list/range', ...}}.
@@ -16,7 +16,10 @@ def render_xml_restriction_filters(db_path, view_name):
         if not attr_cols:
             return None
         
-        with st.expander("🎯 Restricted Search (XML Attributes Filter)", expanded=False):
+        # Show count in label
+        display_name = corpus_name if corpus_name else db_path.split('_')[-1]
+        label = f"🎯 Restricted Search ({len(attr_cols)} filters related to '{display_name}')"
+        with st.expander(label, expanded=False):
             st.markdown("**Narrow your search by selecting specific XML attribute values.**")
             st.caption("For Numerical attributes (e.g. Year, ID), specify a Range. For Text attributes, select values from the dropdown.")
             

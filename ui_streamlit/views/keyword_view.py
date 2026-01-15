@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 from ui_streamlit.state_manager import get_state, set_state
-from core.modules.keyword import generate_keyword_list
+import importlib
+import core.modules.keyword
+importlib.reload(core.modules.keyword)
+from core.modules.keyword import generate_keyword_list, generate_grouped_keyword_list
 from core.visualiser.wordcloud import generate_wordcloud
 from ui_streamlit.components.filters import render_xml_restriction_filters
 from core.preprocessing.xml_parser import apply_xml_restrictions
@@ -205,7 +208,25 @@ def render_keyword_view():
                 top_n = st.number_input("Top N Keywords", 10, 500, 100)
             with c3:
                 p_val_cutoff = st.selectbox("P-Value Cutoff", ["0.05", "0.01", "0.001", "None"], index=2)
+                
+            st.markdown("##### 📂 Grouping (Optional)")
             
+            # Prepare Group Options
+            group_options = ["File (filename)"]
+            
+            import duckdb
+            try:
+                 con = duckdb.connect(current_path, read_only=True)
+                 cols = [c[1] for c in con.execute("PRAGMA table_info(corpus)").fetchall()]
+                 core_cols = ['id', 'token', 'lemma', 'pos', '_token_low', 'filename']
+                 attr_opts = [c for c in cols if c not in core_cols]
+                 con.close()
+                 # Add attributes with prefix
+                 group_options.extend([f"Attribute: {c}" for c in attr_opts])
+            except: pass
+            
+            selected_groups = st.multiselect("Group Results By:", group_options)
+
     # XML Filters
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -222,8 +243,10 @@ def render_keyword_view():
 
     if st.button("Calculate Keywords", type="primary"):
         with st.spinner("Calculating Keyness..."):
+            
+            # 1. Global Results (Always Calculate)
             if get_state('comp_ref_type') == 'freq_list':
-                df = generate_keyword_list(
+                df_global = generate_keyword_list(
                     current_path, None, 
                     xml_where_t, xml_params_t,
                     "", [],
@@ -232,17 +255,106 @@ def render_keyword_view():
                     ref_total_tokens=get_state('comp_total_tokens')
                 )
             else:
-                df = generate_keyword_list(
+                df_global = generate_keyword_list(
                     current_path, ref_path, 
                     xml_where_t, xml_params_t,
                     xml_where_r, xml_params_r,
                     min_freq
                 )
-            st.session_state['keyword_results'] = df
+            st.session_state['keyword_results'] = df_global
+            st.session_state['keyword_results_grouped'] = {}
+
+            # 2. Grouped Results (Iterate)
+            if selected_groups:
+                 grouped_data = {}
+                 for grp_display in selected_groups:
+                      # Extract column name
+                      # "File (filename)" -> "filename"
+                      # "Attribute: speaker" -> "speaker"
+                      if "File" in grp_display: 
+                          grp_col = "filename"
+                      else:
+                          grp_col = grp_display.split(": ")[1]
+                      
+                      if get_state('comp_ref_type') == 'freq_list':
+                         res_dict = generate_grouped_keyword_list(
+                            current_path, grp_col,
+                            None, 
+                            xml_where_t, xml_params_t,
+                            "", [],
+                            min_freq,
+                            ref_freq_df=get_state('comp_freq_df'),
+                            ref_total_tokens=get_state('comp_total_tokens')
+                         )
+                      else:
+                         res_dict = generate_grouped_keyword_list(
+                            current_path, grp_col, 
+                            ref_path,
+                            xml_where_t, xml_params_t,
+                            xml_where_r, xml_params_r,
+                            min_freq
+                         )
+                      grouped_data[grp_display] = res_dict
+                 
+                 st.session_state['keyword_results_grouped'] = grouped_data
             
     # 3. Results
     results = st.session_state.get('keyword_results')
+    results_grouped = st.session_state.get('keyword_results_grouped', {})
     
+    # --- RENDER DASHBOARD ---
+    if results_grouped:
+        st.markdown("---")
+        st.header("📊 Grouped Dashboard")
+        
+        for category, group_dict in results_grouped.items():
+            st.markdown(f"## {category}")
+            # category example: "Attribute: speaker"
+            
+            if not group_dict:
+                st.info("No groups found.")
+                continue
+                
+            # Iterate group values (e.g. SpeakerA, SpeakerB)
+            # Use columns or expanders? User asked for 3 clouds/tables if 3 speakers.
+            # Expanders are cleaner if many. Headers if few.
+            # Let's use Expanders expanded=True by default for visibility.
+            
+            sorted_groups = sorted(group_dict.keys())
+            
+            for grp_val in sorted_groups:
+                stats_df = group_dict[grp_val]
+                if stats_df.empty: continue
+                
+                with st.expander(f"**{grp_val}** ({len(stats_df)} keywords)", expanded=True):
+                    # Filter Positive Only for Cloud/Table mainly
+                    pos_df = stats_df[stats_df['Type'] == 'Positive'].head(top_n)
+                    
+                    c_viz, c_tab = st.columns([1, 1])
+                    with c_viz:
+                        freq_dict = dict(zip(pos_df['token'], pos_df['LL']))
+                        if freq_dict:
+                            wc_fig = generate_wordcloud(freq_dict, title=f"Cloud: {grp_val}", color_scheme='viridis')
+                            st.pyplot(wc_fig)
+                        else: st.caption("No positive keywords.")
+                            
+                    with c_tab:
+                        st.dataframe(
+                            pos_df[['token', 'freq_t', 'freq_r', 'LL', 'LogRatio']], 
+                            use_container_width=True,
+                            height=300
+                        )
+                        st.download_button(
+                            f"⬇️ {grp_val}.xlsx",
+                            data=df_to_excel_bytes(pos_df),
+                            file_name=f"kw_{grp_val}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_{category}_{grp_val}"
+                        )
+
+        st.markdown("---")
+        st.subheader("Global Results (All Groups Merged)")
+
     if isinstance(results, pd.DataFrame) and not results.empty:
         # AI Interpretation
         st.markdown("---")

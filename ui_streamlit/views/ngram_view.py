@@ -62,7 +62,7 @@ def render_ngram_view():
                      basis = "Token"
                      positional_bases_primary = {str(i): basis for i in range(1, n_val + 1)}
                      
-                     xml_filters = render_xml_restriction_filters(corpus_path, "ngram")
+                     xml_filters = render_xml_restriction_filters(corpus_path, "ngram", corpus_name=corpus_name)
                      xml_where, xml_params = apply_xml_restrictions(xml_filters)
                      
                      run_ngram_query('primary', corpus_path, corpus_name, 
@@ -135,7 +135,7 @@ def render_ngram_view():
                      positional_bases_primary = {str(i): global_basis for i in range(1, n_val + 1)}
                      
                      # Execute
-                     xml_filters = render_xml_restriction_filters(corpus_path, "ngram")
+                     xml_filters = render_xml_restriction_filters(corpus_path, "ngram", corpus_name=corpus_name)
                      xml_where, xml_params = apply_xml_restrictions(xml_filters)
                      
                      run_ngram_query('primary', corpus_path, corpus_name, 
@@ -218,7 +218,7 @@ def render_ngram_view():
 
 
     if not comp_mode:
-        xml_filters = render_xml_restriction_filters(corpus_path, "ngram")
+        xml_filters = render_xml_restriction_filters(corpus_path, "ngram", corpus_name=corpus_name)
         xml_where, xml_params = apply_xml_restrictions(xml_filters)
         
         if st.button("Generate N-Grams", type="primary"):
@@ -226,11 +226,11 @@ def render_ngram_view():
     else:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            xml_filters_1 = render_xml_restriction_filters(corpus_path, "ngram_c1")
+            xml_filters_1 = render_xml_restriction_filters(corpus_path, "ngram_c1", corpus_name=corpus_name)
             xml_where_1, xml_params_1 = apply_xml_restrictions(xml_filters_1)
         with col_f2:
             if comp_path:
-                xml_filters_2 = render_xml_restriction_filters(comp_path, "ngram_c2")
+                xml_filters_2 = render_xml_restriction_filters(comp_path, "ngram_c2", corpus_name=comp_name)
                 xml_where_2, xml_params_2 = apply_xml_restrictions(xml_filters_2)
             else:
                 st.info("Load a comparison corpus in sidebar.")

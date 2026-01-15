@@ -89,7 +89,7 @@ def render_concordance_view():
                         st.info(f"   + Collocate Filter: '{coll_filter_parsed}'")
                     
                     # Execute the search
-                    xml_filters = render_xml_restriction_filters(corpus_path, "concordance")
+                    xml_filters = render_xml_restriction_filters(corpus_path, "concordance", corpus_name=corpus_name)
                     xml_where, xml_params = apply_xml_restrictions(xml_filters)
                     
                     run_concordance_query('primary', corpus_path, corpus_name, 
@@ -161,7 +161,7 @@ def render_concordance_view():
                     
                     # Execute
                     # Since params are simple, we pass defaults for others
-                    xml_filters = render_xml_restriction_filters(corpus_path, "concordance")
+                    xml_filters = render_xml_restriction_filters(corpus_path, "concordance", corpus_name=corpus_name)
                     xml_where, xml_params = apply_xml_restrictions(xml_filters)
                     
                     run_concordance_query('primary', corpus_path, corpus_name, 
@@ -222,7 +222,7 @@ def render_concordance_view():
             search_term_2 = None
 
         if not comp_mode:
-            xml_filters = render_xml_restriction_filters(corpus_path, "concordance")
+            xml_filters = render_xml_restriction_filters(corpus_path, "concordance", corpus_name=corpus_name)
             xml_where, xml_params = apply_xml_restrictions(xml_filters)
             
             if st.button("Generate Concordance Lines", type="primary"):
@@ -231,10 +231,10 @@ def render_concordance_view():
         else:
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                xml_filters_1 = render_xml_restriction_filters(corpus_path, "concordance_c1")
+                xml_filters_1 = render_xml_restriction_filters(corpus_path, "concordance_c1", corpus_name=corpus_name)
                 xml_where_1, xml_params_1 = apply_xml_restrictions(xml_filters_1)
             with col_f2:
-                xml_filters_2 = render_xml_restriction_filters(comp_path, "concordance_c2")
+                xml_filters_2 = render_xml_restriction_filters(comp_path, "concordance_c2", corpus_name=comp_name)
                 xml_where_2, xml_params_2 = apply_xml_restrictions(xml_filters_2)
                 
             if st.button("Generate Comparison Concordance", type="primary"):

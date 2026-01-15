@@ -14,6 +14,7 @@ def render_collocation_view():
     st.header("Collocation Analysis")
     
     corpus_path = get_state('current_corpus_path')
+    corpus_name = get_state('current_corpus_name', 'Corpus')
     corpus_stats = get_state('corpus_stats')
     
     if not corpus_path:
@@ -75,7 +76,7 @@ def render_collocation_view():
                     
                     # Execute Search
                     # We reuse the logic for 'primary' search since NL is typically single-corpus focus
-                    xml_filters = render_xml_restriction_filters(corpus_path, "collocation")
+                    xml_filters = render_xml_restriction_filters(corpus_path, "collocation", corpus_name=corpus_name)
                     xml_where, xml_params = apply_xml_restrictions(xml_filters)
                     
                     run_collocation_query(
@@ -235,7 +236,7 @@ def render_collocation_view():
 
 
     if not comp_mode:
-        xml_filters = render_xml_restriction_filters(corpus_path, "collocation")
+        xml_filters = render_xml_restriction_filters(corpus_path, "collocation", corpus_name=corpus_name)
         xml_where, xml_params = apply_xml_restrictions(xml_filters)
         
         if st.button("Calculate Collocations", type="primary"):
@@ -310,11 +311,11 @@ def render_collocation_view():
     else:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            xml_filters_1 = render_xml_restriction_filters(corpus_path, "collocation_c1")
+            xml_filters_1 = render_xml_restriction_filters(corpus_path, "collocation_c1", corpus_name=corpus_name)
             xml_where_1, xml_params_1 = apply_xml_restrictions(xml_filters_1)
         with col_f2:
             if comp_path:
-                xml_filters_2 = render_xml_restriction_filters(comp_path, "collocation_c2")
+                xml_filters_2 = render_xml_restriction_filters(comp_path, "collocation_c2", corpus_name=comp_name)
                 xml_where_2, xml_params_2 = apply_xml_restrictions(xml_filters_2)
             else:
                 st.info("Load a comparison corpus in sidebar.")

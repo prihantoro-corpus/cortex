@@ -110,15 +110,36 @@ def render_sidebar():
         if not built_in_corpora:
             st.warning("No corpora found in local 'corpora' directory.")
         else:
-            selected_name = st.sidebar.selectbox("Select Corpus", list(built_in_corpora.keys()))
-            selected_url = built_in_corpora[selected_name]
+            selected_names = st.sidebar.multiselect(
+                "Select Corpus (one or more)", 
+                list(built_in_corpora.keys()),
+                default=[]
+            )
             
-            detail = BUILT_IN_CORPUS_DETAILS.get(selected_name)
-            if detail:
-                with st.sidebar.expander("ℹ️ Corpus Info"):
-                    st.markdown(detail, unsafe_allow_html=True)
+            # Show info for first selected corpus
+            if selected_names:
+                detail = BUILT_IN_CORPUS_DETAILS.get(selected_names[0])
+                if detail:
+                    with st.sidebar.expander("ℹ️ Corpus Info"):
+                        st.markdown(detail, unsafe_allow_html=True)
 
-            if st.sidebar.button("Load Built-in"):
+            if st.sidebar.button("Load Built-in", disabled=not selected_names):
+                # Force reload of parser logic to pick up hotfixes
+                import sys
+                import importlib
+                try:
+                    if 'core.preprocessing.xml_parser' in sys.modules:
+                        importlib.reload(sys.modules['core.preprocessing.xml_parser'])
+                    
+                    if 'core.preprocessing.corpus_loader' in sys.modules:
+                        importlib.reload(sys.modules['core.preprocessing.corpus_loader'])
+                        
+                    # Re-import the function from the reloaded module
+                    from core.preprocessing.corpus_loader import load_built_in_corpus
+                    
+                except Exception as e:
+                    print(f"Reload Error: {e}")
+
                 progress_bar = st.sidebar.progress(0)
                 status_text = st.sidebar.empty()
                 
@@ -127,38 +148,46 @@ def render_sidebar():
                     status_text.caption(text)
 
                 with st.spinner("Downloading and processing..."):
+                    # Get URLs for all selected corpora
+                    selected_urls = [built_in_corpora[name] for name in selected_names]
+                    
                     result = load_built_in_corpus(
-                        selected_name, 
-                        selected_url,
+                        selected_names, 
+                        selected_urls,
                         progress_callback=update_progress
                     )
                     
                     if result.get('error'):
                         st.error(result['error'])
                     else:
+                        # Create combined name
+                        combined_name = " + ".join(selected_names)
+                        
                         if not get_state('comparison_mode'):
                             set_state('current_corpus_path', result['db_path'])
                             set_state('corpus_stats', result['stats'])
-                            set_state('current_corpus_name', selected_name)
+                            set_state('current_corpus_name', combined_name)
                             set_state('xml_structure_data', result.get('structure'))
                             
-                            # Infer Language
-                            if "ID-" in selected_name or "Indonesian" in selected_name:
-                                set_state('target_lang', 'id')
+                            # Infer Language from first corpus
+                            if "ID-" in selected_names[0] or "Indonesian" in selected_names[0]:
+                                set_state('target_lang', 'ID')
                             else:
-                                set_state('target_lang', 'en')
+                                set_state('target_lang', 'EN')
                         else:
                             if not get_state('current_corpus_path'):
                                 set_state('current_corpus_path', result['db_path'])
                                 set_state('corpus_stats', result['stats'])
-                                set_state('current_corpus_name', selected_name)
+                                set_state('current_corpus_name', combined_name)
                                 set_state('xml_structure_data', result.get('structure'))
-                                if "ID-" in selected_name or "Indonesian" in selected_name: set_state('target_lang', 'id')
-                                else: set_state('target_lang', 'en')
+                                if "ID-" in selected_names[0] or "Indonesian" in selected_names[0]: 
+                                    set_state('target_lang', 'ID')
+                                else: 
+                                    set_state('target_lang', 'EN')
                             else:
                                 set_state('comp_corpus_path', result['db_path'])
                                 set_state('comp_corpus_stats', result['stats'])
-                                set_state('comp_corpus_name', selected_name)
+                                set_state('comp_corpus_name', combined_name)
                                 set_state('comp_xml_structure_data', result.get('structure'))
                         
                         st.success("Built-in Corpus Loaded!")

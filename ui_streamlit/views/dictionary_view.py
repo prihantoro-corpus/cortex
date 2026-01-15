@@ -288,11 +288,21 @@ def render_dictionary_result_column(path, corpus_name, current_term, xml_where, 
     def dictionary_url_helper(token, lang_code):
         l_upper = lang_code.upper()
         if l_upper in ('ID', 'INDONESIAN'):
-             return f"https://kbbi.kemendikdasmen.go.id/entri/{token.lower()}", "Dictionary ↗", f"https://tesaurus.kemendikdasmen.go.id/tematis/lema/{token.lower()}", "Thesaurus ↗"
+             return f"https://kbbi.kemendikdasmen.go.id/entri/{token.lower()}", "KBBI ↗", f"https://tesaurus.kemendikdasmen.go.id/tematis/lema/{token.lower()}", "Tesaurus ↗"
         elif l_upper in ('EN', 'ENG', 'ENGLISH'):
-             return f"https://dictionary.cambridge.org/dictionary/english/{token.lower()}", "Dictionary ↗", f"https://www.collinsdictionary.com/dictionary/english-thesaurus/{token.lower()}", "Thesaurus ↗"
+             return f"https://dictionary.cambridge.org/dictionary/english/{token.lower()}", "Cambridge ↗", f"https://www.collinsdictionary.com/dictionary/english-thesaurus/{token.lower()}", "Collins Thesaurus ↗"
+        elif l_upper in ('AR', 'ARABIC'):
+             return f"https://www.almaany.com/ar/dict/ar-ar/{token.lower()}", "Almaany ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
+        elif l_upper in ('JP', 'JAPANESE'):
+             return f"https://jisho.org/search/{token.lower()}", "Jisho ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
+        elif l_upper in ('CH', 'CHINESE'):
+             return f"https://www.zdic.net/hans/{token.lower()}", "Zdic ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
+        elif l_upper in ('KO', 'KOREAN'):
+             return f"https://dict.naver.com/search.nhn?query={token.lower()}", "Naver ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
+        elif l_upper in ('LO', 'LIMOLA'):
+             return f"https://kbbi.kemendikdasmen.go.id/entri/{token.lower()}", "Limola (via KBBI) ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
         else:
-             return f"https://forvo.com/word/{token}/#{lang_code.lower()}", "Dictionary ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Thesaurus ↗"
+             return f"https://forvo.com/word/{token}/#{lang_code.lower()}", "Forvo ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
              
     current_lang = get_state('target_lang', 'EN')
     dict_url, dict_lbl, thes_url, thes_lbl = dictionary_url_helper(current_term, current_lang)
