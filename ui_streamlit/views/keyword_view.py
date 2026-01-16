@@ -7,10 +7,10 @@ importlib.reload(core.modules.keyword)
 from core.modules.keyword import generate_keyword_list, generate_grouped_keyword_list
 from core.visualiser.wordcloud import generate_wordcloud
 from ui_streamlit.components.filters import render_xml_restriction_filters
-from core.preprocessing.xml_parser import apply_xml_restrictions
 from core.io_utils import df_to_excel_bytes
 from core.config import BUILT_IN_CORPORA
 from core.preprocessing.corpus_loader import load_monolingual_corpus_files, load_built_in_corpus
+from core.preprocessing.xml_parser import apply_xml_restrictions, get_xml_attribute_columns
 from core.ai_service import parse_nl_query
 import io
 
@@ -217,13 +217,12 @@ def render_keyword_view():
             import duckdb
             try:
                  con = duckdb.connect(current_path, read_only=True)
-                 cols = [c[1] for c in con.execute("PRAGMA table_info(corpus)").fetchall()]
-                 core_cols = ['id', 'token', 'lemma', 'pos', '_token_low', 'filename']
-                 attr_opts = [c for c in cols if c not in core_cols]
+                 attr_opts = get_xml_attribute_columns(con)
                  con.close()
                  # Add attributes with prefix
                  group_options.extend([f"Attribute: {c}" for c in attr_opts])
-            except: pass
+            except Exception as e:
+                st.warning(f"Error fetching attributes: {e}")
             
             selected_groups = st.multiselect("Group Results By:", group_options)
 
