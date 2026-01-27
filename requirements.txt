@@ -19,4 +19,6 @@ sentence-transformers>=2.2.0
 plotly>=5.19.0
 eng-to-ipa>=0.0.2
 cefrpy>=0.0.1
+stanza>=1.8.0
+deep-translator>=1.11.4
 
