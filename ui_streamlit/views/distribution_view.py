@@ -215,8 +215,21 @@ def render_dist_column(results, key_suffix=""):
         
         st.altair_chart(chart, use_container_width=True)
     
-    # Metadata
+    # Metadata & Filename
     if meta_dists:
+        # Separate Filename if present for prominence
+        df_file = meta_dists.pop('filename', None)
+        if df_file is not None:
+            st.markdown("#### 📁 Distribution by Filename")
+            file_chart = alt.Chart(df_file).mark_bar(color='#00ADB5').encode(
+                x=alt.X('Value:N', title='Filename', sort=None),
+                y=alt.Y('Relative (%):Q', title='Relative (%)', scale=alt.Scale(domainMin=0, domainMax=100)),
+                tooltip=['Value', 'Absolute', 'PMW', 'Relative (%)']
+            ).properties(height=250).configure_axis(labelAngle=-45)
+            st.altair_chart(file_chart, use_container_width=True)
+            st.dataframe(df_file, use_container_width=True, hide_index=True)
+            st.markdown("---")
+
         with st.expander("Metadata Distributions", expanded=False):
             for attr, df_attr in meta_dists.items():
                 st.markdown(f"**{attr.title()}**")

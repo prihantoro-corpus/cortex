@@ -7,12 +7,13 @@ importlib.reload(core.modules.keyword)
 from core.modules.keyword import generate_keyword_list, generate_grouped_keyword_list
 from core.visualiser.wordcloud import generate_wordcloud
 from ui_streamlit.components.filters import render_xml_restriction_filters
-from core.io_utils import df_to_excel_bytes
-from core.config import BUILT_IN_CORPORA
+from core.io_utils import df_to_excel_bytes, dfs_to_zip_excel_bytes
+from core.config import get_available_corpora
 from core.preprocessing.corpus_loader import load_monolingual_corpus_files, load_built_in_corpus
 from core.preprocessing.xml_parser import apply_xml_restrictions, get_xml_attribute_columns
 from core.ai_service import parse_nl_query
 import io
+import duckdb
 
 def parse_frequency_list_file(uploaded_file):
     """Parses a word-tab-freq or word-space-freq file."""
@@ -55,21 +56,20 @@ def render_keyword_view():
     with st.container(border=True):
         st.markdown("#### 🎯 Reference Corpus Selection")
         
-        # Priority 1: Use Global Comparison Corpus if enabled
         if comp_mode and ref_path:
             st.success(f"**Using Global Comparison Corpus:** {ref_name}")
             st.caption("You can change the comparison corpus in the Sidebar.")
         
-        # Priority 2: Manual Selection if no global comparison or if user wants to override (simplified here to just show manual if not set)
         elif not ref_path:
             st.info("Select a reference corpus to compare against.")
             tabs = st.tabs(["🏛️ Pre-built", "📤 Upload"])
             
             with tabs[0]:
-                sel_name = st.selectbox("Built-in Corpora", list(BUILT_IN_CORPORA.keys()))
+                available_corpora = get_available_corpora()
+                sel_name = st.selectbox("Built-in Corpora", list(available_corpora.keys()))
                 if st.button("Load as Reference", key="load_builtin_ref"):
                     with st.spinner("Downloading and processing..."):
-                        result = load_built_in_corpus(sel_name, BUILT_IN_CORPORA[sel_name])
+                        result = load_built_in_corpus(sel_name, available_corpora[sel_name])
                         if result.get('error'):
                             st.error(result['error'])
                         else:
@@ -86,7 +86,7 @@ def render_keyword_view():
                     if st.button("Process Reference", key="btn_process_ref"):
                         with st.spinner("Processing reference..."):
                             if uploaded_ref.name.endswith('.xml'):
-                                result = load_monolingual_corpus_files([uploaded_ref], explicit_lang_code=get_state('target_lang', 'en'))
+                                result = load_monolingual_corpus_files([uploaded_ref], explicit_lang_code=get_state('target_lang', 'en'), selected_format='.xml / auto')
                                 if result.get('error'):
                                     st.error(result['error'])
                                 else:
@@ -108,7 +108,6 @@ def render_keyword_view():
                                     st.rerun()
             return 
         else:
-            # Manual reference set but not in global comp mode
             c1, c2 = st.columns([3, 1])
             with c1:
                 st.success(f"**Reference:** {ref_name} (Manual/Previous)")
@@ -122,314 +121,239 @@ def render_keyword_view():
         
     st.markdown("---")
     
-    # Target and Reference labels
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Target Corpus:** {current_name}")
-    with col2:
-        st.markdown(f"**Reference Corpus:** {ref_name}")
+    def _render_kw_controls(target_path, target_name, default_ref_path, default_ref_name, key_suffix=""):
+        suffix = f"_{key_suffix}" if key_suffix else ""
+        params = {}
+        st.markdown("##### Settings")
         
-    # 2. Settings
-    search_mode = st.radio("Search Mode", ["Standard", "Natural Language (AI)"], horizontal=True, key="kw_search_mode")
-    
-    if search_mode == "Natural Language (AI)":
-        st.markdown("### 🧠 Natural Language Search")
-        nl_query = st.text_area("Describe keyword criteria", placeholder="e.g. Find keywords with very high significance (p < 0.001)")
+        ref_options = []
+        if default_ref_path:
+             ref_options.append(f"Corpus: {default_ref_name}")
         
-        if st.button("Configure & Run", type="primary", key="kw_ai_btn"):
-             if not nl_query:
-                 st.warning("Please enter a query.")
-             else:
-                 with st.spinner("Parsing query..."):
-                     params, err = parse_nl_query(
-                         nl_query, 
-                         "keyword",
-                         ai_provider=get_state('ai_provider'),
-                         gemini_api_key=get_state('gemini_api_key'),
-                         ollama_url=get_state('ollama_url'),
-                         ollama_model=get_state('ai_model')
-                     )
-                     
-                 if params:
-                     st.success("✓ Criteria parsed.")
-                     
-                     # Execute
-                     try:
-                        min_freq = int(params.get('min_freq', 5))
-                     except (ValueError, TypeError): min_freq = 5
-                     # We can't apply min_freq to state easily without rerunning standard logic, so we call generate directly
-                     
-                     with st.spinner("Calculating Keyness..."):
-                         # Basic restrictions
-                         xml_filters_t = render_xml_restriction_filters(current_path, "kw_target")
-                         xml_where_t, xml_params_t = apply_xml_restrictions(xml_filters_t)
-                         
-                         if get_state('comp_ref_type') != 'freq_list':
-                             xml_filters_r = render_xml_restriction_filters(ref_path, "kw_ref")
-                             xml_where_r, xml_params_r = apply_xml_restrictions(xml_filters_r)
-                         else:
-                             xml_where_r, xml_params_r = "", []
-                             
-                         if get_state('comp_ref_type') == 'freq_list':
-                            df = generate_keyword_list(
-                                current_path, None, 
-                                xml_where_t, xml_params_t,
-                                "", [],
-                                min_freq,
-                                ref_freq_df=get_state('comp_freq_df'),
-                                ref_total_tokens=get_state('comp_total_tokens')
-                            )
-                         else:
-                            df = generate_keyword_list(
-                                current_path, ref_path, 
-                                xml_where_t, xml_params_t,
-                                xml_where_r, xml_params_r,
-                                min_freq
-                            )
-                         
-                         # Apply P-Value filtering if requested explicitly
-                         p_cut = params.get('p_val_cutoff')
-                         if p_cut and df is not None and not df.empty:
-                             if p_cut == "0.001":
-                                 df = df[df['Significance'].str.contains(r'\*\*\*', na=False)]
-                             elif p_cut == "0.01":
-                                 df = df[df['Significance'].str.contains(r'\*\*', na=False)]
-                             elif p_cut == "0.05":
-                                 df = df[df['Significance'] != 'ns']
-                         
-                         st.session_state['keyword_results'] = df
+        available = get_available_corpora()
+        ref_options.extend([f"Built-in: {k}" for k in available.keys()])
+        sel_ref_label = st.selectbox("Reference Corpus", ref_options, index=0, key=f"kw_ref_sel{suffix}")
+        
+        ref_path_selected = None
+        if sel_ref_label.startswith("Corpus: "):
+             ref_path_selected = default_ref_path
+             ref_name_selected = default_ref_name
+        else:
+             b_name = sel_ref_label.replace("Built-in: ", "")
+             ref_path_selected = f"BUILTIN:{b_name}"
+             ref_name_selected = b_name
+             ref_name_selected = b_name
+             ref_path_selected = f"BUILTIN:{b_name}"
 
-    if search_mode == "Standard":
-        with st.expander("Analysis Settings", expanded=True):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                min_freq = st.number_input("Min Frequency (Target)", 1, 1000, 5, help="Minimum frequency in target corpus")
-            with c2:
-                top_n = st.number_input("Top N Keywords", 10, 500, 100)
-            with c3:
-                p_val_cutoff = st.selectbox("P-Value Cutoff", ["0.05", "0.01", "0.001", "None"], index=2)
-                
-            st.markdown("##### 📂 Grouping (Optional)")
+        c1, c2 = st.columns(2)
+        with c1:
+            min_freq = st.number_input("Min Freq (Target)", 1, 1000, 5, key=f"kw_min{suffix}")
+        with c2:
+            top_n = st.number_input("Top N", 10, 500, 50, key=f"kw_top{suffix}")
             
-            # Prepare Group Options
-            group_options = ["File (filename)"]
-            
-            import duckdb
-            try:
-                 con = duckdb.connect(current_path, read_only=True)
-                 attr_opts = get_xml_attribute_columns(con)
-                 con.close()
-                 # Add attributes with prefix
-                 group_options.extend([f"Attribute: {c}" for c in attr_opts])
-            except Exception as e:
-                st.warning(f"Error fetching attributes: {e}")
-            
-            selected_groups = st.multiselect("Group Results By:", group_options)
+        p_val = st.selectbox("P-Value Cutoff", ["0.05", "0.01", "0.001", "None"], index=2, key=f"kw_pval{suffix}")
+        
+        st.markdown("##### Target Restrictions")
+        view_name = f"kw_target_{key_suffix}" if key_suffix else "kw_target"
+        xml_filters = render_xml_restriction_filters(target_path, view_name, corpus_name=target_name)
+        xw, xp = apply_xml_restrictions(xml_filters)
+        
+        if st.button("Calculate Keywords", type="primary", key=f"btn_kw{suffix}"):
+            params['min_freq'] = min_freq
+            params['top_n'] = top_n
+            params['p_val'] = p_val
+            params['ref_path'] = ref_path_selected
+            params['ref_name'] = ref_name_selected
+            params['xml_where'] = xw
+            params['xml_params'] = xp
+            return params
+        return None
 
-    # XML Filters
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        st.markdown("##### Target Filters")
-        xml_filters_t = render_xml_restriction_filters(current_path, "kw_target")
-        xml_where_t, xml_params_t = apply_xml_restrictions(xml_filters_t)
-    if get_state('comp_ref_type') != 'freq_list':
-        with col_f2:
-            st.markdown("##### Reference Filters")
-            xml_filters_r = render_xml_restriction_filters(ref_path, "kw_ref")
-            xml_where_r, xml_params_r = apply_xml_restrictions(xml_filters_r)
+    if not comp_mode:
+        p = _render_kw_controls(current_path, current_name, ref_path, ref_name)
+        if p:
+             _run_keyword_analysis('primary', current_path, current_name, p, get_state)
     else:
-        xml_where_r, xml_params_r = "", []
+        col1, col2 = st.columns(2)
+        with col1:
+             st.subheader(f"Target: {current_name}")
+             p1 = _render_kw_controls(current_path, current_name, ref_path, ref_name, "c1")
+             if p1: _run_keyword_analysis('primary', current_path, current_name, p1, get_state)
+        with col2:
+             st.subheader(f"Target: {ref_name}")
+             p2 = _render_kw_controls(ref_path, ref_name, current_path, current_name, "c2")
+             if p2: _run_keyword_analysis('secondary', ref_path, ref_name, p2, get_state)
 
-    if st.button("Calculate Keywords", type="primary"):
-        with st.spinner("Calculating Keyness..."):
-            
-            # 1. Global Results (Always Calculate)
-            if get_state('comp_ref_type') == 'freq_list':
-                df_global = generate_keyword_list(
-                    current_path, None, 
-                    xml_where_t, xml_params_t,
-                    "", [],
-                    min_freq,
-                    ref_freq_df=get_state('comp_freq_df'),
-                    ref_total_tokens=get_state('comp_total_tokens')
-                )
-            else:
-                df_global = generate_keyword_list(
-                    current_path, ref_path, 
-                    xml_where_t, xml_params_t,
-                    xml_where_r, xml_params_r,
-                    min_freq
-                )
-            st.session_state['keyword_results'] = df_global
-            st.session_state['keyword_results_grouped'] = {}
+    st.markdown("---")
+    if not comp_mode:
+        res = st.session_state.get('last_kw_results_primary')
+        if res: render_keyword_results(res)
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+             res1 = st.session_state.get('last_kw_results_primary')
+             if res1: render_keyword_results(res1, "c1")
+        with c2:
+             res2 = st.session_state.get('last_kw_results_secondary')
+             if res2: render_keyword_results(res2, "c2")
 
-            # 2. Grouped Results (Iterate)
-            if selected_groups:
-                 grouped_data = {}
-                 for grp_display in selected_groups:
-                      # Extract column name
-                      # "File (filename)" -> "filename"
-                      # "Attribute: speaker" -> "speaker"
-                      if "File" in grp_display: 
-                          grp_col = "filename"
-                      else:
-                          grp_col = grp_display.split(": ")[1]
-                      
-                      if get_state('comp_ref_type') == 'freq_list':
-                         res_dict = generate_grouped_keyword_list(
-                            current_path, grp_col,
-                            None, 
-                            xml_where_t, xml_params_t,
-                            "", [],
-                            min_freq,
-                            ref_freq_df=get_state('comp_freq_df'),
-                            ref_total_tokens=get_state('comp_total_tokens')
-                         )
-                      else:
-                         res_dict = generate_grouped_keyword_list(
-                            current_path, grp_col, 
-                            ref_path,
-                            xml_where_t, xml_params_t,
-                            xml_where_r, xml_params_r,
-                            min_freq
-                         )
-                      grouped_data[grp_display] = res_dict
-                 
-                 st.session_state['keyword_results_grouped'] = grouped_data
-            
-    # 3. Results
-    results = st.session_state.get('keyword_results')
-    results_grouped = st.session_state.get('keyword_results_grouped', {})
+def _run_keyword_analysis(identifier, target_path, target_name, params, state_getter):
+    ref_path = params['ref_path']
+    ref_name = params['ref_name']
+    final_ref_path = ref_path
     
-    # --- RENDER DASHBOARD ---
-    if results_grouped:
-        st.markdown("---")
-        st.header("📊 Grouped Dashboard")
-        
-        for category, group_dict in results_grouped.items():
-            st.markdown(f"## {category}")
-            # category example: "Attribute: speaker"
-            
-            if not group_dict:
-                st.info("No groups found.")
-                continue
-                
-            # Iterate group values (e.g. SpeakerA, SpeakerB)
-            # Use columns or expanders? User asked for 3 clouds/tables if 3 speakers.
-            # Expanders are cleaner if many. Headers if few.
-            # Let's use Expanders expanded=True by default for visibility.
-            
-            sorted_groups = sorted(group_dict.keys())
-            
-            for grp_val in sorted_groups:
-                stats_df = group_dict[grp_val]
-                if stats_df.empty: continue
-                
-                with st.expander(f"**{grp_val}** ({len(stats_df)} keywords)", expanded=True):
-                    # Filter Positive Only for Cloud/Table mainly
-                    pos_df = stats_df[stats_df['Type'] == 'Positive'].head(top_n)
-                    
-                    c_viz, c_tab = st.columns([1, 1])
-                    with c_viz:
-                        freq_dict = dict(zip(pos_df['token'], pos_df['LL']))
-                        if freq_dict:
-                            wc_fig = generate_wordcloud(freq_dict, title=f"Cloud: {grp_val}", color_scheme='viridis')
-                            st.pyplot(wc_fig)
-                        else: st.caption("No positive keywords.")
-                            
-                    with c_tab:
-                        st.dataframe(
-                            pos_df[['token', 'freq_t', 'freq_r', 'LL', 'LogRatio']], 
-                            use_container_width=True,
-                            height=300
-                        )
-                        st.download_button(
-                            f"⬇️ {grp_val}.xlsx",
-                            data=df_to_excel_bytes(pos_df),
-                            file_name=f"kw_{grp_val}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"dl_{category}_{grp_val}"
-                        )
-
-        st.markdown("---")
-        st.subheader("Global Results (All Groups Merged)")
-
-    if isinstance(results, pd.DataFrame) and not results.empty:
-        # AI Interpretation
-        st.markdown("---")
-        if st.button("🧠 Interpret Keywords with AI", key="btn_kw_ai_full"):
-            with st.spinner("AI is analyzing keywords..."):
-                top_pos = results[results['Type'] == 'Positive'].head(20).to_string(index=False)
-                from core.ai_service import interpret_results_llm
-                resp, err = interpret_results_llm(
-                    target_word=current_name,
-                    analysis_type="Keyword Analysis",
-                    data_description=f"Keywords in '{current_name}' vs '{ref_name}'.",
-                    data=top_pos,
-                    ai_provider=get_state('ai_provider'),
-                    gemini_api_key=get_state('gemini_api_key'),
-                    ollama_url=get_state('ollama_url'),
-                    ollama_model=get_state('ai_model')
-                )
-                if resp: set_state('llm_res_kw', resp)
-                else: st.error(err)
-        
-        ai_res = get_state('llm_res_kw')
-        if ai_res:
-            with st.expander("🤖 AI Keyword Interpretation", expanded=True):
-                st.markdown(ai_res)
-        st.markdown("---")
-        # Filtering by Significance
-        if p_val_cutoff != "None":
-            # Filter logic depends on how association.py formats strings.
-            # *** (p<0.001), ** (p<0.01), * (p<0.05), ns
-            if p_val_cutoff == "0.001":
-                results = results[results['Significance'].str.contains(r'\*\*\*', na=False)]
-            elif p_val_cutoff == "0.01":
-                results = results[results['Significance'].str.contains(r'\*\*', na=False)]
-            elif p_val_cutoff == "0.05":
-                results = results[results['Significance'] != 'ns']
-        
-        pos_keywords = results[results['Type'] == 'Positive'].head(top_n)
-        neg_keywords = results[results['Type'] == 'Negative'].sort_values('LL', ascending=False).head(top_n)
-        
-        tab_pos, tab_neg = st.tabs([f"Positive Keywords ({len(pos_keywords)})", f"Negative Keywords ({len(neg_keywords)})"])
-        
-        def render_keyword_tab(df, color_scheme='viridis'):
-            if df.empty:
-                st.info("No keywords found.")
+    if ref_path and ref_path.startswith("BUILTIN:"):
+        b_name = ref_path.replace("BUILTIN:", "")
+        with st.spinner(f"Loading '{b_name}'..."):
+            res = load_built_in_corpus(b_name, BUILT_IN_CORPORA[b_name])
+            if not res.get('error'): final_ref_path = res['db_path']
+            else:
+                st.error(res['error'])
                 return
-                
-            c_viz, c_data = st.columns([1, 1])
-            
-            with c_viz:
-                freq_dict = dict(zip(df['token'], df['LL']))
-                if freq_dict:
-                    wc_fig = generate_wordcloud(freq_dict, title="Keyword Cloud (by LL)", color_scheme=color_scheme)
-                    st.pyplot(wc_fig)
-            
-            with c_data:
-                st.dataframe(
-                    df[['token', 'freq_t', 'freq_r', 'LL', 'LogRatio', 'Significance']], 
-                    use_container_width=True
-                )
-                
-            st.download_button(
-                "Download List",
-                data=df_to_excel_bytes(df),
-                file_name=f"keywords_{color_scheme}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_btn_{color_scheme}_{len(df)}"
-            )
 
-        with tab_pos:
-            st.caption(f"Words significantly MORE frequent in {current_name} than {ref_name}")
-            render_keyword_tab(pos_keywords, 'viridis')
+    with st.spinner(f"Calculating Keywords: {target_name} vs {ref_name}..."):
+        def apply_p_val_filter(df, p_cutoff):
+            if df is None or df.empty or p_cutoff == "None": return df
+            if p_cutoff == "0.001": return df[df['Significance'].str.contains(r'\*\*\*', na=False)]
+            elif p_cutoff == "0.01": return df[df['Significance'].str.contains(r'\*\*', na=False)]
+            elif p_cutoff == "0.05": return df[df['Significance'] != 'ns']
+            return df
+
+        # Custom handling for frequency list reference
+        ref_freq_df = None
+        ref_total_tokens = 0
+        if ref_path == 'frequency_list':
+            ref_freq_df = st.session_state.get('comp_freq_df')
+            ref_total_tokens = st.session_state.get('comp_total_tokens', 0)
+            final_ref_path = None # Ensure it doesn't try to connect to a DB
             
-        with tab_neg:
-            st.caption(f"Words significantly LESS frequent in {current_name} than {ref_name}")
-            # For negative, maybe red scheme? Wordcloud supports colormaps.
-            render_keyword_tab(neg_keywords, 'magma')
+        df_overall = generate_keyword_list(
+            target_path, 
+            ref_db_path=final_ref_path, 
+            target_xml_where=params['xml_where'], 
+            target_xml_params=params['xml_params'], 
+            ref_freq_df=ref_freq_df,
+            ref_total_tokens=ref_total_tokens,
+            min_freq=params['min_freq']
+        )
+        df_overall = apply_p_val_filter(df_overall, params['p_val'])
+
+        by_filename = generate_grouped_keyword_list(
+            target_path, 
+            group_by_col="filename", 
+            ref_db_path=final_ref_path, 
+            target_xml_where=params['xml_where'], 
+            target_xml_params=params['xml_params'], 
+            ref_freq_df=ref_freq_df,
+            ref_total_tokens=ref_total_tokens,
+            min_freq=params['min_freq']
+        )
+        for k in by_filename: by_filename[k] = apply_p_val_filter(by_filename[k], params['p_val'])
+
+        by_attributes = {}
+        attr_cols = get_xml_attribute_columns(duckdb.connect(target_path, read_only=True))
+        if attr_cols:
+            for attr in attr_cols:
+                if attr == "filename": continue
+                grouped = generate_grouped_keyword_list(
+                    target_path, 
+                    attr, 
+                    ref_db_path=final_ref_path, 
+                    target_xml_where=params['xml_where'], 
+                    target_xml_params=params['xml_params'], 
+                    ref_freq_df=ref_freq_df,
+                    ref_total_tokens=ref_total_tokens,
+                    min_freq=params['min_freq']
+                )
+                if grouped:
+                    for k in grouped: grouped[k] = apply_p_val_filter(grouped[k], params['p_val'])
+                    by_attributes[attr] = grouped
+
+        st.session_state[f'last_kw_results_{identifier}'] = {
+            'overall': df_overall, 'by_filename': by_filename, 'by_attributes': by_attributes,
+            'target': target_name, 'ref': ref_name, 'top_n': params['top_n']
+        }
+
+def render_keyword_results(res, key_suffix=""):
+    top_n = res['top_n']
+    st.markdown(f"### Results for: **{res['target']}**")
+    st.caption(f"Compared against: {res['ref']}")
+
+    def _get_top_list(df, n=10, is_positive=True):
+        if df is None or df.empty: return ""
+        filtered = df[df['Type'] == ('Positive' if is_positive else 'Negative')]
+        if not is_positive: filtered = filtered.sort_values('LL', ascending=False)
+        return ", ".join(filtered.head(n)['token'].tolist())
+
+    o_rows_pos, o_rows_neg = [], []
+    o_rows_pos.append({"Classification": "Overall", "Keywords": _get_top_list(res.get('overall'))})
+    o_rows_neg.append({"Classification": "Overall", "Keywords": _get_top_list(res.get('overall'), is_positive=False)})
+    
+    for fname, df in res.get('by_filename', {}).items():
+        o_rows_pos.append({"Classification": f"File: {fname}", "Keywords": _get_top_list(df)})
+        o_rows_neg.append({"Classification": f"File: {fname}", "Keywords": _get_top_list(df, is_positive=False)})
+    for attr, groups in res.get('by_attributes', {}).items():
+        for val, df in groups.items():
+            o_rows_pos.append({"Classification": f"{attr}={val}", "Keywords": _get_top_list(df)})
+            o_rows_neg.append({"Classification": f"{attr}={val}", "Keywords": _get_top_list(df, is_positive=False)})
             
-    elif results is not None:
-        st.warning("No results found or calculation failed.")
+    df_o_pos, df_o_neg = pd.DataFrame(o_rows_pos), pd.DataFrame(o_rows_neg)
+
+    st.markdown("#### 📊 Keyword Overview (Top 10)")
+    oc1, oc2 = st.columns(2)
+    with oc1:
+        st.markdown("**High Keyness (Positive)**")
+        st.dataframe(df_o_pos, use_container_width=True, hide_index=True)
+    with oc2:
+        st.markdown("**Low Keyness (Negative)**")
+        st.dataframe(df_o_neg, use_container_width=True, hide_index=True)
+
+    all_dfs = {'Overview_Positive': df_o_pos, 'Overview_Negative': df_o_neg}
+    if res.get('overall') is not None: all_dfs['Overall'] = res['overall']
+    for fname, df in res.get('by_filename', {}).items():
+        safe_name = "".join([c if c.isalnum() or c in (' ', '_', '-') else '_' for c in fname])
+        all_dfs[f"File_{safe_name}"] = df
+    for attr, groups in res.get('by_attributes', {}).items():
+        for val, df in groups.items():
+            safe_val = "".join([c if c.isalnum() or c in (' ', '_', '-') else '_' for c in str(val)])
+            all_dfs[f"Attr_{attr}_{safe_val}"] = df
+
+    if all_dfs:
+        zip_data = dfs_to_zip_excel_bytes(all_dfs)
+        st.download_button(label="📥 Download All Keywords (ZIP)", data=zip_data, file_name=f"keywords_{res['target'].replace(' ', '_')}.zip", mime="application/zip", key=f"dl_kw_zip_{key_suffix}")
+
+    st.markdown("---")
+    st.markdown("#### 🔍 Detailed Analysis")
+
+    def _draw_kw_table(df, title_prefix, sub_key):
+        if df is None or df.empty:
+            st.info(f"No significant keywords for {title_prefix}.")
+            return
+        pos = df[df['Type'] == 'Positive'].head(top_n)
+        neg = df[df['Type'] == 'Negative'].sort_values('LL', ascending=False).head(top_n)
+        tab_p, tab_n = st.tabs([f"High Keyness ({len(pos)})", f"Low Keyness ({len(neg)})"])
+        with tab_p:
+            if not pos.empty:
+                fd = dict(zip(pos['token'], pos['LL']))
+                fig = generate_wordcloud(fd, title=f"Positive: {title_prefix}", width=400, height=200)
+                st.pyplot(fig)
+                st.dataframe(pos[['token', 'LL', 'LogRatio', 'Significance']], use_container_width=True, height=250, hide_index=True)
+        with tab_n:
+            if not neg.empty: st.dataframe(neg[['token', 'LL', 'LogRatio', 'Significance']], use_container_width=True, height=250, hide_index=True)
+
+    with st.expander("🌍 Overall Corpus Keywords", expanded=True): _draw_kw_table(res.get('overall'), "Overall", f"ov_{key_suffix}")
+    by_file = res.get('by_filename', {})
+    if by_file:
+        with st.expander("📁 Keywords By Filename", expanded=False):
+            f_tabs = st.tabs(list(by_file.keys()))
+            for idx, (fname, df_f) in enumerate(by_file.items()):
+                with f_tabs[idx]: _draw_kw_table(df_f, fname, f"f_{idx}_{key_suffix}")
+    by_attr = res.get('by_attributes', {})
+    if by_attr:
+        for attr_name, groups in by_attr.items():
+            with st.expander(f"🏷️ Keywords By {attr_name.title()}", expanded=False):
+                a_tabs = st.tabs(list(groups.keys()))
+                for idx, (gv, df_g) in enumerate(groups.items()):
+                    with a_tabs[idx]: 
+                        st.markdown(f"**Value:** `{gv}`")
+                        _draw_kw_table(df_g, f"{attr_name}={gv}", f"a_{attr_name}_{idx}_{key_suffix}")

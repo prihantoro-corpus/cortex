@@ -12,6 +12,7 @@ from ui_streamlit.caching import (
     cached_get_subcorpus_size
 )
 from core.preprocessing.xml_parser import apply_xml_restrictions
+from core.modules.overview import get_corpus_language
 from ui_streamlit.components.filters import render_xml_restriction_filters
 from core.ai_service import interpret_results_llm
 from core.statistics.frequency import pmw_to_zipf, zipf_to_band
@@ -304,7 +305,8 @@ def render_dictionary_result_column(path, corpus_name, current_term, xml_where, 
         else:
              return f"https://forvo.com/word/{token}/#{lang_code.lower()}", "Forvo ↗", f"https://www.google.com/search?q={token.lower()}+thesaurus", "Google Search ↗"
              
-    current_lang = get_state('target_lang', 'EN')
+    current_lang = get_corpus_language(path)
+    # Map full name to code for the url_helper if needed, but the helper handles it
     dict_url, dict_lbl, thes_url, thes_lbl = dictionary_url_helper(current_term, current_lang)
     
     dict_link = dict_url
