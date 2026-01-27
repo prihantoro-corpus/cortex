@@ -17,3 +17,24 @@ def download_file_to_bytesio(url):
     except Exception as e:
         print(f"Failed to download built-in corpus from {url}. Error: {e}")
         return None
+
+def dfs_to_zip_excel_bytes(df_dict):
+    """
+    Creates a ZIP file containing multiple Excel files from a dictionary of DataFrames.
+    Args:
+        df_dict (dict): { "filename_no_ext": pd.DataFrame }
+    Returns:
+        bytes: ZIP file content
+    """
+    import zipfile
+    zip_buf = BytesIO()
+    
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for name, df in df_dict.items():
+            if df is None or df.empty:
+                continue
+            excel_bytes = df_to_excel_bytes(df)
+            zip_file.writestr(f"{name}.xlsx", excel_bytes)
+            
+    zip_buf.seek(0)
+    return zip_buf.getvalue()

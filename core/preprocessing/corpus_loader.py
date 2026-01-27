@@ -11,6 +11,7 @@ from .cleaning import sanitize_xml_content
 from .xml_parser import extract_xml_structure, parse_xml_content_to_df
 from core.config import CORPORA_DIR, TAGSET_DIR
 from core.modules.overview import save_pos_definitions
+from .tagging import tag_text_with_stanza, tag_text_simple_fallback
 
 def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_format, progress_callback=None):
     """
@@ -24,9 +25,12 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
     
     # Defaults
     source_lang_code = explicit_lang_code
-    is_tagged_format = 'verticalised' in selected_format or 'TreeTagger' in selected_format
+    is_tagged_format = 'Tagged' in selected_format
+    use_stanza = 'Raw' in selected_format
     xml_detected_lang_code = None
     combined_structure = {}
+    
+    print(f"DEBUG: load_monolingual_corpus_files called. Lang: {explicit_lang_code}, Format: {selected_format}")
 
     num_files = len(file_sources)
 
@@ -37,10 +41,22 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
         file_source.seek(0)
         filename = file_source.name
         
+        # Read a sample to detect pseudo-XML
+        sample_bytes = file_source.read(1024)
+        file_source.seek(0)
+        sample_str = sample_bytes.decode('utf-8', errors='ignore').strip()
+        
+        is_xml_ext = filename.lower().endswith('.xml')
+        is_pseudo_xml = False
+        if not is_xml_ext:
+            if sample_str.startswith('<'):
+                is_pseudo_xml = True
+            elif any(tag in sample_str.lower() for tag in ['<text', '<corpus', '<p>', '<p ']):
+                is_pseudo_xml = True
+
         # --- XML PROCESSING ---
-        if filename.lower().endswith('.xml'):
+        if is_xml_ext or is_pseudo_xml:
             try:
-                # One read, one clean
                 xml_content = file_source.read().decode('utf-8', errors='ignore')
                 cleaned_xml = sanitize_xml_content(xml_content)
                 
@@ -59,7 +75,16 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
                                         combined_structure[tag][attr].update(vals)
                 
                 # 2. Content Parsing
-                result = parse_xml_content_to_df(cleaned_xml)
+                stanza_proc = None
+                if use_stanza or 'stanza' in selected_format.lower():
+                    from .tagging import tag_text_with_stanza
+                    stanza_proc = tag_text_with_stanza
+                
+                result = parse_xml_content_to_df(
+                    cleaned_xml, 
+                    stanza_processor=stanza_proc, 
+                    lang_code=source_lang_code
+                )
                 if 'df_data' in result:
                     if explicit_lang_code == 'OTHER' and result.get('lang_code') not in ('XML', 'OTHER'):
                         xml_detected_lang_code = result['lang_code'] 
@@ -69,10 +94,10 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
                     
                     all_df_data.extend(result['df_data'])
                 elif 'error' in result:
-                    print(f"Error processing XML {filename}: {result['error']}")
+                    return {'error': f"XML Error ({filename}): {result['error']}"}
 
             except Exception as e:
-                print(f"Error processing XML {filename}: {e}")
+                return {'error': f"Processing Error ({filename}): {str(e)}"}
         
         # --- TXT/CSV PROCESSING ---
         else: 
@@ -82,8 +107,7 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
                 clean_lines = [line for line in file_content_str.splitlines() if line and not line.strip().startswith('#')]
                 clean_content = "\n".join(clean_lines)
             except Exception as e:
-                print(f"Error reading raw file content: {e}")
-                continue
+                return {'error': f"Error reading raw file {filename}: {str(e)}"}
 
             current_is_tagged = is_tagged_format
             if current_is_tagged:
@@ -109,12 +133,50 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
                     print(f"File {filename} could not be parsed as vertical format. Falling back to raw text.")
                     current_is_tagged = False 
             
-            if not current_is_tagged or selected_format == '.txt': 
+            if not current_is_tagged or 'Raw' in selected_format: 
                 raw_text = clean_content
-                cleaned_text = re.sub(r'([^\w\s])', r' \1 ', raw_text)
-                tokens = [t.strip() for t in cleaned_text.split() if t.strip()] 
-                df_raw_file = pd.DataFrame({"token": tokens, "pos": ["##"]*len(tokens), "lemma": ["##"]*len(tokens), "sent_id": [0]*len(tokens), "filename": [filename]*len(tokens)})
-                all_df_data.extend(df_raw_file.to_dict('records'))
+                
+                # Tagging Logic Integration
+                # If explicit_lang_code is set, we try to use it.
+                # If "OTHER" is selected, we perform fallback tagging.
+                
+                print(f"DEBUG: Processing raw text. explicit_lang_code='{explicit_lang_code}'")
+                tagged_data = []
+                
+                if explicit_lang_code and explicit_lang_code != "OTHER" and (use_stanza or 'Raw' in selected_format):
+                    try:
+                        # Attempt Stanza Tagging
+                        tagged_data, err = tag_text_with_stanza(raw_text, explicit_lang_code)
+                    except Exception as e:
+                        msg = f"Stanza tagging failed for '{explicit_lang_code}': {e}. Using simple fallback."
+                        print(msg)
+                        stanza_warning = msg
+                        tagged_data, err = tag_text_simple_fallback(raw_text)
+                elif explicit_lang_code == "OTHER" or (not use_stanza and 'Raw' not in selected_format):
+                    tagged_data, err = tag_text_simple_fallback(raw_text)
+                else:
+                    # Legacy Fallback or Default Behavior for "auto" without specific language?
+                    # The request says: "if they choose language, you will tokenise... Stanza"
+                    # "When other is chosen... use 'TAG' instead"
+                    # If user didn't specify language (e.g. from built-in?), corpus loader might default to 'en' or None.
+                    # Current load_monolingual default is 'en' if not provided? -> No, argument is required.
+                    # sidebar passes 'en' by default.
+                    
+                    # If we are here, likely 'en' or some coded lang.
+                    # Maintain old behavior? Or upgrade everything? 
+                    # "For no, only ENglish, Indonesia and Japan is available." -> "change to all languages supported by Stanza."
+                    
+                    if explicit_lang_code:
+                         tagged_data = tag_text_with_stanza(raw_text, explicit_lang_code)
+                    else:
+                         # Very generic fallback if no lang code known
+                         tagged_data = tag_text_simple_fallback(raw_text)
+
+                # Add metadata
+                for item in tagged_data:
+                    item['filename'] = filename
+                
+                all_df_data.extend(tagged_data)
 
     if not all_df_data:
         return {'error': "No valid data extracted from files"}
@@ -156,6 +218,10 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
 
     final_lang_code = xml_detected_lang_code if xml_detected_lang_code else source_lang_code
     
+    # Save Language to Metadata
+    from core.modules.overview import set_corpus_language
+    set_corpus_language(db_path, final_lang_code)
+    
     # Auto-load local tagset definitions if available
     # Iterate through input files to find a matching tagset (taking the first match)
     for fs in file_sources:
@@ -168,7 +234,8 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
         'stats': corpus_stats,
         'structure': combined_structure,
         'lang_code': final_lang_code,
-        'error': None
+        'error': None,
+        'warning': stanza_warning if 'stanza_warning' in locals() else None
     }
 
 def load_xml_parallel_corpus(src_file, tgt_file, src_lang_code, tgt_lang_code, progress_callback=None):
@@ -340,6 +407,18 @@ def load_excel_parallel_corpus_file(file_source, excel_format):
         'error': None
     }
 
+# Mapping from folder names to language codes
+FOLDER_TO_LANG_MAP = {
+    'indonesian': 'Indonesian',
+    'english': 'English',
+    'arabic': 'Arabic',
+    'chinese': 'Chinese',
+    'japanese': 'Japanese',
+    'korean': 'Korean',
+    'javanese': 'Javanese',
+    'hindi': 'Hindi'
+}
+
 def load_built_in_corpus(name, url, progress_callback=None):
     """Downloads or loads one or more built-in corpora."""
     # Support both single and multiple corpora
@@ -351,12 +430,21 @@ def load_built_in_corpus(name, url, progress_callback=None):
         urls = url
 
     file_sources = []
+    detected_lang = 'English'  # Default fallback
     
     try:
         for idx, (corpus_name, corpus_url) in enumerate(zip(names, urls)):
             filename = corpus_url
             local_path = os.path.join(CORPORA_DIR, filename)
             use_local = os.path.exists(local_path)
+            
+            # Detect language from folder name in the path
+            # Extract first path component (folder name)
+            path_parts = filename.replace('\\', '/').split('/')
+            if len(path_parts) > 0:
+                folder_name = path_parts[0].lower()
+                if folder_name in FOLDER_TO_LANG_MAP:
+                    detected_lang = FOLDER_TO_LANG_MAP[folder_name]
             
             if use_local:
                 if progress_callback:
@@ -389,7 +477,14 @@ def load_built_in_corpus(name, url, progress_callback=None):
         elif any('europarl' in n.lower() for n in names):
             fmt = 'verticalised (T/P/L)'
 
-        result = load_monolingual_corpus_files(file_sources, 'en', fmt, progress_callback=progress_callback)
+        # Pass detected language instead of hardcoded 'en'
+        result = load_monolingual_corpus_files(file_sources, detected_lang, fmt, progress_callback=progress_callback)
+        
+        # Ensure detected language is saved if successfully loaded
+        if result and not result.get('error'):
+            from core.modules.overview import set_corpus_language
+            set_corpus_language(result['db_path'], detected_lang)
+            
         return result
         
     except Exception as e:

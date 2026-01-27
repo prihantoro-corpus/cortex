@@ -1,80 +1,102 @@
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from core.visualiser.styles import POS_COLOR_MAP
 
-def create_word_cloud(freq_data, is_tagged_mode):
-    """Generates a word cloud from frequency data with conditional POS coloring."""
-    
-    try:
-        from wordcloud import WordCloud
-    except ImportError:
+POS_COLOR_MAP = {
+    'N': '#1f77b4', # Noun - Blue
+    'V': '#ff7f0e', # Verb - Orange
+    'J': '#2ca02c', # Adj - Green
+    'R': '#d62728', # Adv - Red
+    'O': '#7f7f7f'  # Other - Gray
+}
+
+def create_word_cloud(data, use_pos=False):
+    """
+    Unified entry point for word cloud generation.
+    Handles Both DataFrames and dictionaries without Truth Value ambiguity.
+    """
+    if data is None:
         return None
         
-    # Filter out multi-word units for visualization stability
-    single_word_freq_data = freq_data[~freq_data['token'].str.contains(' ')].copy()
-    if single_word_freq_data.empty:
-        return None 
+    try:
+        if isinstance(data, pd.DataFrame):
+            if data.empty:
+                return None
+            
+            # Determine frequency dictionary
+            # Expects columns like 'token' and 'frequency'
+            word_freq = dict(zip(data['token'], data['frequency']))
+            
+            if use_pos and 'pos' in data.columns:
+                word_to_pos = dict(zip(data['token'], data['pos']))
+                return generate_tagged_wordcloud(word_freq, word_to_pos)
+            else:
+                return generate_wordcloud(word_freq)
+                
+        elif isinstance(data, dict):
+            if not data:
+                return None
+            return generate_wordcloud(data)
+    except Exception:
+        return None
+        
+    return None
 
-    word_freq_dict = single_word_freq_data.set_index('token')['frequency'].to_dict()
-    word_to_pos = single_word_freq_data.set_index('token').get('pos', pd.Series('O')).to_dict()
-    
-    stopwords = set(["the", "of", "to", "and", "in", "that", "is", "a", "for", "on", "it", "with", "as", "by", "this", "be", "are", "have", "not", "will", "i", "we", "you"])
-    
+def generate_tagged_wordcloud(word_freq_dict, word_to_pos):
+    """
+    Generates a POS-colored word cloud.
+    """
+    if word_freq_dict is None or len(word_freq_dict) == 0:
+        return None
+
     wc = WordCloud(
         width=800,
         height=400,
         background_color='black',
-        colormap='viridis', 
-        stopwords=stopwords,
         min_font_size=10
     )
     
     try:
         wordcloud = wc.generate_from_frequencies(word_freq_dict)
-    except ValueError:
+    except Exception:
         return None 
 
-    if is_tagged_mode:
-        def final_color_func(word, *args, **kwargs):
-            pos_tag = word_to_pos.get(word, 'O')
-            pos_code = pos_tag[0].upper() if pos_tag and len(pos_tag) > 0 else 'O'
-            if pos_code not in POS_COLOR_MAP:
-                pos_code = 'O'
-            return POS_COLOR_MAP.get(pos_code, POS_COLOR_MAP['O'])
+    def final_color_func(word, *args, **kwargs):
+        pos_tag = word_to_pos.get(word, 'O')
+        pos_code = pos_tag[0].upper() if pos_tag and len(pos_tag) > 0 else 'O'
+        if pos_code not in POS_COLOR_MAP:
+            pos_code = 'O'
+        return POS_COLOR_MAP.get(pos_code, POS_COLOR_MAP['O'])
 
-        wordcloud = wordcloud.recolor(color_func=final_color_func)
+    wordcloud = wordcloud.recolor(color_func=final_color_func)
         
-    import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.imshow(wordcloud, interpolation='bilinear')
     ax.axis("off")
-    plt.tight_layout(pad=0)
+    fig.tight_layout(pad=0)
     
     return fig
 
-def generate_wordcloud(freq_dict, title="", color_scheme='viridis'):
+def generate_wordcloud(freq_dict, title="", color_scheme='viridis', width=400, height=200):
     """
-    Generates a word cloud from a dictionary of word:score.
-    
-    Args:
-        freq_dict (dict): Dictionary mapping words to scores/frequencies.
-        title (str): Title for the plot.
-        color_scheme (str): Matplotlib colormap name.
-        
-    Returns:
-        matplotlib.figure.Figure: The plot figure.
+    Generates a word cloud from a dictionary or DataFrame.
     """
-    if not freq_dict:
+    if freq_dict is None:
         return None
         
-    try:
-        from wordcloud import WordCloud
-        import matplotlib.pyplot as plt
-    except ImportError:
+    # Standardize to dict
+    if isinstance(freq_dict, pd.DataFrame):
+        if freq_dict.empty: return None
+        freq_dict = dict(zip(freq_dict['token'], freq_dict['frequency']))
+
+    # Final check before passing to WordCloud
+    if not isinstance(freq_dict, dict) or len(freq_dict) == 0:
         return None
         
     wc = WordCloud(
-        width=800,
-        height=400,
+        width=width * 2,
+        height=height * 2,
         background_color='black',
         colormap=color_scheme,
         min_font_size=10
@@ -82,14 +104,14 @@ def generate_wordcloud(freq_dict, title="", color_scheme='viridis'):
     
     try:
         wordcloud = wc.generate_from_frequencies(freq_dict)
-    except Exception as e:
+    except Exception:
         return None
         
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(width/100, height/100))
     ax.imshow(wordcloud, interpolation='bilinear')
     ax.axis("off")
     if title:
         ax.set_title(title, color='white')
-    plt.tight_layout(pad=0)
+    fig.tight_layout(pad=0)
     
     return fig

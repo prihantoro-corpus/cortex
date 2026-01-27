@@ -28,6 +28,12 @@ def calculate_distribution(corpus_db_path, raw_target_input, xml_where_clause=""
         def parse_term(term):
             lemma_match = re.search(r"\[(.*?)\]", term)
             if lemma_match: return {'type': 'lemma', 'val': lemma_match.group(1).strip().lower()}
+            # Combined Token_POS Check (e.g. light_V*)
+            if '_' in term and not term.startswith('_') and not lemma_match:
+                parts = term.rsplit('_', 1)
+                if len(parts) == 2 and parts[1]:
+                    return {'type': 'token_pos', 'token': parts[0].lower(), 'pos': parts[1]}
+
             pos_match = re.search(r"\_([A-Za-z0-9\*|\\-]+)", term)
             if pos_match: return {'type': 'pos', 'val': pos_match.group(1).strip()}
             return {'type': 'word', 'val': term.lower()}
@@ -43,8 +49,31 @@ def calculate_distribution(corpus_db_path, raw_target_input, xml_where_clause=""
             alias = f"c{k}"
             if k > 0: query_joins += f" JOIN corpus {alias} ON {alias}.id = c0.id + {k} "
             
-            val = comp['val']
-            if comp['type'] == 'word':
+            if comp['type'] == 'token_pos':
+                 t_val = comp['token']
+                 p_val = comp['pos']
+                 
+                 # Token SQL
+                 if '*' in t_val:
+                     query_where.append(f"regexp_matches({alias}._token_low, ?)")
+                     query_params.append('^' + re.escape(t_val).replace(r'\*', '.*') + '$')
+                 else:
+                     query_where.append(f"{alias}._token_low = ?")
+                     query_params.append(t_val)
+                 
+                 # POS SQL
+                 if not is_raw_mode: 
+                     if '|' in p_val or '*' in p_val:
+                        pats = [p.strip() for p in p_val.split('|') if p.strip()]
+                        regex = "^(" + "|".join([re.escape(p).replace(r'\*', '.*') for p in pats]) + ")$"
+                        query_where.append(f"regexp_matches({alias}.pos, ?)")
+                        query_params.append(regex)
+                     else:
+                        query_where.append(f"{alias}.pos = ?")
+                        query_params.append(p_val)
+
+            elif comp['type'] == 'word':
+                val = comp['val']
                 if '*' in val:
                     regex_pat = '^' + re.escape(val).replace(r'\*', '.*') + '$'
                     query_where.append(f"regexp_matches({alias}._token_low, ?)")
@@ -53,6 +82,7 @@ def calculate_distribution(corpus_db_path, raw_target_input, xml_where_clause=""
                     query_where.append(f"{alias}._token_low = ?")
                     query_params.append(val)
             elif comp['type'] == 'lemma' and not is_raw_mode:
+                val = comp['val']
                 if '*' in val:
                     regex_pat = '^' + re.escape(val).replace(r'\*', '.*') + '$'
                     query_where.append(f"regexp_matches(lower({alias}.lemma), ?)")
@@ -61,6 +91,7 @@ def calculate_distribution(corpus_db_path, raw_target_input, xml_where_clause=""
                     query_where.append(f"lower({alias}.lemma) = ?")
                     query_params.append(val)
             elif comp['type'] == 'pos' and not is_raw_mode:
+                val = comp['val']
                 if '|' in val or '*' in val:
                     pos_patterns = [p.strip() for p in val.split('|') if p.strip()]
                     full_regex = "^(" + "|".join([re.escape(p).replace(r'\*', '.*') for p in pos_patterns]) + ")$"
@@ -113,7 +144,7 @@ def calculate_distribution(corpus_db_path, raw_target_input, xml_where_clause=""
             segment_counts[idx] += 1
             
         # 2. Metadata Attribute Distributions
-        standard_cols = {'id', 'token', 'pos', 'lemma', 'sent_id', '_token_low'}
+        standard_cols = {'id', 'token', 'pos', 'lemma', '_token_low'} # Removed 'filename' and 'sent_id' from exclusion
         all_cols_info = con.execute("PRAGMA table_info(corpus)").fetchall()
         all_cols = [c[1] for c in all_cols_info]
         meta_cols = [c for c in all_cols if c not in standard_cols]

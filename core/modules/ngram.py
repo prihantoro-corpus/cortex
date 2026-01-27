@@ -81,7 +81,36 @@ def generate_n_grams_v2(corpus_db_path, n_size, n_gram_filters, is_raw_mode, cor
 
                 target_col = f"t{idx}" # Default to token
                 regex_pat = ""
+                pos_regex_pat = ""
                 
+                # 0. Combined Token_POS (e.g. light_V*)
+                # Only if not starting with _ (pure POS) and not [lemma]
+                m_lemma_check = re.search(r"\[(.*?)\]", pat)
+                if not m_lemma_check and '_' in pat and not pat.startswith('_'):
+                     parts = pat.rsplit('_', 1)
+                     if len(parts) == 2 and parts[1]:
+                          # Token part logic
+                          t_part = parts[0]
+                          regex_pat = '^' + standardize_wildcards(t_part) + '$'
+                          
+                          # POS part logic
+                          if not is_raw:
+                              p_part = parts[1]
+                              # Treat as POS pattern
+                              pos_regex_pat = '^' + standardize_wildcards(p_part) + '$'
+                              if '|' in p_part: pos_regex_pat = pos_regex_pat.replace(r'\|', '|') # Restore alternation if needed
+                              # Ensure case insensitive for POS
+                              pos_regex_pat = "(?i)" + pos_regex_pat
+
+                if regex_pat and pos_regex_pat:
+                     # We have a dual constraint
+                     op = "NOT regexp_matches" if is_negative else "regexp_matches"
+                     # Logic: (Token match AND POS match)
+                     clause_str = f"({op}(t{idx}, ?) AND {op}(p{idx}, ?))"
+                     sub_clauses.append(clause_str)
+                     sub_params.extend([regex_pat, pos_regex_pat])
+                     continue
+
                 # 1. Lemma [lemma]
                 m_lemma = re.search(r"\[(.*?)\]", pat)
                 if m_lemma and not is_raw:

@@ -69,6 +69,14 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
                 suffix = term[term.find(']')+1:]
                 return {'type': 'lemma', 'val': prefix + val + suffix}
             
+            # Combined Token_POS Check (e.g. light_V*)
+            if '_' in term and not term.startswith('_'):
+                 bracket_idx = term.find('[')
+                 if bracket_idx == -1: # Only if not lemma
+                     parts = term.rsplit('_', 1)
+                     if len(parts) == 2 and parts[1]:
+                          return {'type': 'token_pos', 'token': parts[0].lower(), 'pos': parts[1]}
+
             pos_match = re.search(r"\_([A-Za-z0-9\*|\\%_-]+)", term)
             underscore_idx = term.find('_')
             if pos_match:
@@ -90,30 +98,48 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
             alias = f"c{k}"
             if k > 0: query_joins += f" JOIN corpus {alias} ON {alias}.id = c0.id + {k} "
             
-            val = comp['val']
-            # Treat *, %, _ as wildcards, and | as alternation
-            is_wildcard = any(c in val for c in ('*', '%', '_', '|'))
+            if comp['type'] == 'token_pos':
+                 t_val = comp['token']
+                 p_val = comp['pos']
+                 
+                 # Token
+                 pat = re.escape(t_val).replace(r'\*', '.*').replace(r'\%', '.*').replace(r'\_', '.')
+                 query_where.append(f"regexp_matches({alias}._token_low, ?)")
+                 query_params.append('^' + pat + '$')
+                 
+                 # POS
+                 if not is_raw_mode_active:
+                     pat_pos = re.escape(p_val).replace(r'\*', '.*').replace(r'\%', '.*').replace(r'\_', '.')
+                     if '|' in p_val:
+                         pat_pos = pat_pos.replace(r'\|', '|')
+                     query_where.append(f"regexp_matches({alias}.pos, ?)")
+                     query_params.append('^' + pat_pos + '$')
             
-            col_target = f"{alias}._token_low"
-            if comp['type'] == 'lemma' and not is_raw_mode_active: col_target = f"lower({alias}.lemma)"
-            if comp['type'] == 'pos' and not is_raw_mode_active: col_target = f"{alias}.pos"
-            
-            if is_wildcard:
-                # Convert glob/SQL wildcards to Regex
-                # * -> .*
-                # % -> .*
-                # _ -> .
-                pat = re.escape(val).replace(r'\*', '.*').replace(r'\%', '.*').replace(r'\_', '.')
-                if '|' in val:
-                    # Restore | for alternation
-                    pat = pat.replace(r'\|', '|')
-                
-                regex_pat = '^' + pat + '$'
-                query_where.append(f"regexp_matches({col_target}, ?)")
-                query_params.append(regex_pat)
             else:
-                query_where.append(f"{col_target} = ?")
-                query_params.append(val)
+                val = comp['val']
+                # Treat *, %, _ as wildcards, and | as alternation
+                is_wildcard = any(c in val for c in ('*', '%', '_', '|'))
+                
+                col_target = f"{alias}._token_low"
+                if comp['type'] == 'lemma' and not is_raw_mode_active: col_target = f"lower({alias}.lemma)"
+                if comp['type'] == 'pos' and not is_raw_mode_active: col_target = f"{alias}.pos"
+                
+                if is_wildcard:
+                    # Convert glob/SQL wildcards to Regex
+                    # * -> .*
+                    # % -> .*
+                    # _ -> .
+                    pat = re.escape(val).replace(r'\*', '.*').replace(r'\%', '.*').replace(r'\_', '.')
+                    if '|' in val:
+                        # Restore | for alternation
+                        pat = pat.replace(r'\|', '|')
+                    
+                    regex_pat = '^' + pat + '$'
+                    query_where.append(f"regexp_matches({col_target}, ?)")
+                    query_params.append(regex_pat)
+                else:
+                    query_where.append(f"{col_target} = ?")
+                    query_params.append(val)
 
         try: con.execute("DROP TABLE IF EXISTS search_matches")
         except: pass

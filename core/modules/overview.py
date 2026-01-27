@@ -1,17 +1,33 @@
 import duckdb
 import pandas as pd
 
-def calculate_corpus_statistics(corpus_stats):
+def calculate_corpus_statistics(corpus_stats, db_path=None):
     """
     Calculates display metrics like Type/Token Ratio.
+    Includes a self-healing check to query the DB if stats are missing or 0.
     """
-    if not corpus_stats:
+    if not corpus_stats and not db_path:
         return {}
         
-    total_tokens = corpus_stats.get('total_tokens', 0)
-    token_counts = corpus_stats.get('token_counts', {})
-    type_count = len(token_counts)
+    c_stats = corpus_stats if corpus_stats else {}
     
+    total_tokens = c_stats.get('total_tokens', 0)
+    type_count = c_stats.get('unique_tokens', 0)
+    
+    if type_count == 0 and 'token_counts' in c_stats:
+        type_count = len(c_stats['token_counts'])
+    
+    # Self-healing: if we have a DB but types/tokens are suspiciously low, re-calculate
+    if db_path and (total_tokens == 0 or type_count == 0):
+        try:
+            con = duckdb.connect(db_path, read_only=True)
+            res = con.execute("SELECT count(*), count(DISTINCT _token_low) FROM corpus").fetchone()
+            total_tokens = res[0]
+            type_count = res[1]
+            con.close()
+        except:
+            pass
+
     ttr = (type_count / total_tokens) if total_tokens > 0 else 0
     
     return {
@@ -57,8 +73,7 @@ def get_top_frequencies_v2(db_path, limit=100, xml_where_clause="", xml_params=[
         cols = [c[1] for c in con.execute("PRAGMA table_info(corpus)").fetchall()]
         has_pos = 'pos' in cols
         
-        # Base query (exclude punctuation and purely numeric strings if consistent with app.py)
-        # Note: app.py used regexp_matches which might be slow on large corpora but we'll stick to parity.
+        # Base query (exclude punctuation and purely numeric strings)
         filter_clause = "WHERE NOT regexp_matches(_token_low, '^[[:punct:]]+$') AND NOT regexp_matches(_token_low, '^[0-9]+$')"
         
         if xml_where_clause:
@@ -84,8 +99,7 @@ def get_unique_pos_tags(db_path, xml_where_clause="", xml_params=[]):
         if 'pos' not in cols:
             return []
             
-        # exclude common placeholder symbols used in the system
-        query = "SELECT DISTINCT pos FROM corpus WHERE pos NOT IN ('##', '###', 'O', '') AND pos NOT LIKE '##%'"
+        query = "SELECT DISTINCT pos FROM corpus WHERE pos NOT IN ('##', '###', 'O', '', 'TAG') AND pos NOT LIKE '##%'"
         
         if xml_where_clause:
             query += xml_where_clause
@@ -98,20 +112,16 @@ def get_unique_pos_tags(db_path, xml_where_clause="", xml_params=[]):
 def get_pos_definitions(db_path):
     """
     Fetches the POS definitions dictionary from the database.
-    Returns: dict {tag: definition}
     """
     if not db_path: return {}
-    
     con = duckdb.connect(db_path, read_only=True)
     try:
-        # check if table exists
         tables = [t[0] for t in con.execute("SHOW TABLES").fetchall()]
         if 'pos_definitions' not in tables:
             return {}
-            
         rows = con.execute("SELECT tag, definition FROM pos_definitions").fetchall()
         return {r[0]: r[1] for r in rows}
-    except Exception:
+    except:
         return {}
     finally:
         con.close()
@@ -119,22 +129,15 @@ def get_pos_definitions(db_path):
 def save_pos_definitions(db_path, definitions):
     """
     Saves the POS definitions dictionary to the database.
-    definitions: dict {tag: definition}
     """
     if not db_path or not definitions: return False
-    
     con = duckdb.connect(db_path)
     try:
         con.execute("CREATE TABLE IF NOT EXISTS pos_definitions (tag VARCHAR PRIMARY KEY, definition VARCHAR)")
-        
-        # Upsert logic (DuckDB supports ON CONFLICT REPLACE / UPDATE)
-        # But simpler to just clear and re-insert for this scale of data (usually < 100 tags)
         con.execute("DELETE FROM pos_definitions")
-        
         data = [(k, v) for k, v in definitions.items() if v and v.strip()]
         if data:
             con.executemany("INSERT INTO pos_definitions VALUES (?, ?)", data)
-            
         return True
     except Exception as e:
         print(f"Error saving definitions: {e}")
@@ -147,11 +150,9 @@ def get_corpus_language(db_path):
     if not db_path: return "English"
     con = duckdb.connect(db_path)
     try:
-        # Check if table exists
         tables = con.execute("SHOW TABLES").fetchall()
         if ('corpus_metadata',) not in tables:
             return "English"
-            
         res = con.execute("SELECT value FROM corpus_metadata WHERE key='language'").fetchone()
         return res[0] if res else "English"
     except:
@@ -165,7 +166,6 @@ def set_corpus_language(db_path, language):
     con = duckdb.connect(db_path)
     try:
         con.execute("CREATE TABLE IF NOT EXISTS corpus_metadata (key VARCHAR PRIMARY KEY, value VARCHAR)")
-        # Upsert
         con.execute("INSERT INTO corpus_metadata VALUES ('language', ?) ON CONFLICT (key) DO UPDATE SET value=excluded.value", [language])
         return True
     except Exception as e:

@@ -60,7 +60,7 @@ def extract_xml_structure(xml_input, max_values=20):
     process_element(root)
     return structure, None
 
-def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
+def parse_xml_content_to_df(xml_input, force_vertical_xml=False, stanza_processor=None, lang_code='EN'):
     """
     Parses XML content, extracts sentences and IDs, and tokenizes/verticalizes.
     Returns dict with keys: lang_code, df_data, sent_map, attributes, error
@@ -85,21 +85,22 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
             root = LXML_ET.fromstring(cleaned_xml_content.encode('utf-8'), parser=parser)
         else:
             root = ET.fromstring(cleaned_xml_content)
-        lang_code = root.get('lang')
-        if not lang_code:
+            
+        xml_lang = root.get('lang')
+        if not xml_lang:
             lang_match = re.search(r'(<text\s+lang="([^"]+)">|<corpus\s+[^>]*lang="([^"]+)">)', cleaned_xml_content)
             if lang_match:
-                lang_code = lang_match.group(3) or lang_match.group(2)
+                xml_lang = lang_match.group(3) or lang_match.group(2)
         
-        if not lang_code: lang_code = 'XML'
-        lang_code = lang_code.upper()
+        final_lang = xml_lang.upper() if xml_lang else lang_code.upper()
+        if not final_lang: final_lang = 'XML'
             
     except Exception as e:
         return {'error': f"Tokenization Parse Error: {e}"}
 
     df_data = []
     sent_map = {}
-    detected_attrs = {} # Track all attributes found
+    detected_attrs = {} 
     
     excluded_attrs = ('n', 'id', 'num', 'lang')
     base_root_attrs = {k: v for k, v in root.attrib.items() if k.lower() not in excluded_attrs}
@@ -109,54 +110,66 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
         detected_attrs[k].add(v)
 
     elements_to_process = []
-    
-    # Stratified search for sentence-like units
-    # Pass 1: Explicit sentence tags (Most granular, preferred)
     pass1_tags = {'sent', 's', 'u', 'utterance'}
-    # Pass 2: Paragraph/Block tags (If no sentences found)
-    pass2_tags = {'p', 'para', 'ab', 'div'} # div is broad but often used as unit if no p/s
-    # Pass 3: Document/Text tags (Last resort, preserve attributes even if large unit)
+    pass2_tags = {'p', 'para', 'ab', 'div'} 
     pass3_tags = {'text'}
 
     def traverse_and_collect(element, current_attrs, target_tags):
         new_attrs = current_attrs.copy()
         new_attrs.update({k: v for k, v in element.attrib.items() if k.lower() not in excluded_attrs})
-        
         if element.tag in target_tags:
             elements_to_process.append((element, new_attrs))
-            # optimization: if we found a target unit, we stop descending *into* it for MORE units 
-            # (assuming flat hierarchy of units). 
-            # Note: If <text> contains <s>, Pass 1 catches <s> (element.tag=s).
-            # If Pass 3, target=text. We catch <text>. We stop.
             return 
-        
         for child in element:
             traverse_and_collect(child, new_attrs, target_tags)
             
-    # Execute Pass 1
     traverse_and_collect(root, {}, pass1_tags)
-    
-    # If no units found, try Pass 2
     if not elements_to_process:
         traverse_and_collect(root, {}, pass2_tags)
-        
-    # If still no units found, try Pass 3
     if not elements_to_process:
          traverse_and_collect(root, {}, pass3_tags)
 
     if not elements_to_process:
-        # Fallback to pure text (Unstructured blob)
         raw_sentence_text = "".join(root.itertext()).strip() 
         if raw_sentence_text:
+            if stanza_processor:
+                res = stanza_processor(raw_sentence_text, final_lang)
+                if isinstance(res, tuple) and len(res) == 2:
+                    stanza_records, err = res
+                else:
+                    stanza_records, err = res, None
+                    
+                if not err and stanza_records:
+                    current_stanza_sent = -1
+                    current_sent_text_parts = []
+                    for rec in stanza_records:
+                        if rec['sent_id'] != current_stanza_sent:
+                            if current_stanza_sent != -1:
+                                sent_map[sequential_id_counter] = " ".join(current_sent_text_parts)
+                            
+                            sequential_id_counter += 1
+                            current_stanza_sent = rec['sent_id']
+                            current_sent_text_parts = []
+                        
+                        row = {"token": rec['token'], "pos": rec['pos'], "lemma": rec['lemma'], "sent_id": sequential_id_counter}
+                        row.update(base_root_attrs)
+                        df_data.append(row)
+                        current_sent_text_parts.append(rec['token'])
+                    
+                    if current_sent_text_parts:
+                        sent_map[sequential_id_counter] = " ".join(current_sent_text_parts)
+                        
+                    return {'lang_code': final_lang, 'df_data': df_data, 'sent_map': sent_map, 'attributes': detected_attrs}
+
             cleaned_text = re.sub(r'([^\w\s])', r' \1 ', raw_sentence_text) 
             tokens = [t.strip() for t in cleaned_text.split() if t.strip()]
             if tokens:
                for token in tokens:
-                    row = {"token": token, "pos": "##", "lemma": "##", "sent_id": 1}
+                    row = {"token": token, "pos": "TAG", "lemma": token, "sent_id": 1}
                     row.update(base_root_attrs)
                     df_data.append(row)
                sent_map[1] = raw_sentence_text
-            return {'lang_code': lang_code, 'df_data': df_data, 'sent_map': sent_map, 'attributes': detected_attrs}
+            return {'lang_code': final_lang, 'df_data': df_data, 'sent_map': sent_map, 'attributes': detected_attrs}
         return {'error': "No parseable content found"}
 
     sequential_id_counter = 0
@@ -166,7 +179,6 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
             if k not in detected_attrs: detected_attrs[k] = set()
             detected_attrs[k].add(v)
 
-        
         sent_id_str = sent_elem.get('n') or sent_elem.get('id')
         sent_id = None
         if sent_id_str:
@@ -186,8 +198,8 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
             for w_elem in word_tags:
                 token = w_elem.text.strip() if w_elem.text else ""
                 if not token: continue
-                pos = w_elem.get('pos') or w_elem.get('type') or "##"
-                lemma = w_elem.get('lemma') or "##"
+                pos = w_elem.get('pos') or w_elem.get('type') or "TAG"
+                lemma = w_elem.get('lemma') or token
                 row = {"token": token, "pos": pos, "lemma": lemma, "sent_id": sent_id}
                 if combined_row_attrs: row.update(combined_row_attrs)
                 df_data.append(row)
@@ -203,7 +215,11 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
             if lines:
                 if force_vertical_xml: is_vertical_format = True
                 else:
-                    is_vertical_format = sum(line.count('\t') > 0 or len(re.split(r'\s{1,}', line.strip())) >= 2 for line in lines) / len(lines) > 0.4
+                    def is_line_vertical(l):
+                        if '\t' in l: return True
+                        words = re.split(r'\s+', l.strip())
+                        return 1 <= len(words) <= 3 
+                    is_vertical_format = sum(is_line_vertical(line) for line in lines) / len(lines) > 0.8
             
             if is_vertical_format:
                 raw_tokens = []
@@ -211,18 +227,46 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
                     parts = re.split(r'\t+', line.strip())
                     if not parts or not parts[0]: continue
                     token = parts[0]
-                    pos = parts[1] if len(parts) > 1 else "##"
-                    lemma = parts[2] if len(parts) > 2 else "##"
+                    pos = parts[1] if len(parts) > 1 else "TAG"
+                    lemma = parts[2] if len(parts) > 2 else token
                     row = {"token": token, "pos": pos, "lemma": lemma, "sent_id": sent_id}
                     if combined_row_attrs: row.update(combined_row_attrs)
                     df_data.append(row)
                     raw_tokens.append(token)
             else:
                 raw_text_to_tokenize = raw_sentence_text.replace('\n', ' ').replace('\t', ' ')
+                if stanza_processor:
+                    res = stanza_processor(raw_text_to_tokenize, final_lang)
+                    if isinstance(res, tuple) and len(res) == 2:
+                        stanza_records, err = res
+                    else:
+                        stanza_records, err = res, None
+                    
+                    if not err and stanza_records:
+                        current_stanza_sent = -1
+                        current_sent_text_parts = []
+                        for rec in stanza_records:
+                            if rec['sent_id'] != current_stanza_sent:
+                                if current_stanza_sent != -1:
+                                    sent_map[sequential_id_counter] = " ".join(current_sent_text_parts)
+                                
+                                sequential_id_counter += 1
+                                current_stanza_sent = rec['sent_id']
+                                current_sent_text_parts = []
+                            
+                            row = {"token": rec['token'], "pos": rec['pos'], "lemma": rec['lemma'], "sent_id": sequential_id_counter}
+                            if combined_row_attrs: row.update(combined_row_attrs)
+                            df_data.append(row)
+                            current_sent_text_parts.append(rec['token'])
+                        
+                        if current_sent_text_parts:
+                            sent_map[sequential_id_counter] = " ".join(current_sent_text_parts)
+                        continue
+                
                 cleaned_text = re.sub(r'([^\w\s])', r' \1 ', raw_text_to_tokenize) 
                 tokens = [t.strip() for t in cleaned_text.split() if t.strip()] 
                 for token in tokens:
-                    row = {"token": token, "pos": "##", "lemma": "##", "sent_id": sent_id}
+                    row = {"token": token, "pos": "TAG", "lemma": token, "sent_id": sent_id}
                     if combined_row_attrs: row.update(combined_row_attrs)
                     df_data.append(row)
         
@@ -232,7 +276,7 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False):
     if not df_data:
         return {'error': "No tokenized data extracted"}
         
-    return {'lang_code': lang_code, 'df_data': df_data, 'sent_map': sent_map, 'attributes': detected_attrs}
+    return {'lang_code': final_lang, 'df_data': df_data, 'sent_map': sent_map, 'attributes': detected_attrs}
 
 def format_structure_data_hierarchical(structure_data, indent_level=0, max_values=20):
     """

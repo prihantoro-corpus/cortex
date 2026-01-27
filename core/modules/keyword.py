@@ -246,9 +246,9 @@ def generate_grouped_keyword_list(target_db_path, group_by_col, ref_db_path=None
         # 3. Iterate Groups
         for group_val in groups:
             # Safe parameterization for group value
-            # We append the group condition to the existing XML where clause
-            group_where = f" AND {group_by_col} = ?"
-            full_where = target_xml_where + group_where
+            # Ensure we handle the WHERE clause correctly (avoid AND without a safe prefix)
+            group_where_clause = f" AND {group_by_col} = ?"
+            full_where = f" {target_xml_where} {group_where_clause}"
             full_params = target_xml_params + [group_val]
             
             sql_t = f"""
@@ -262,11 +262,13 @@ def generate_grouped_keyword_list(target_db_path, group_by_col, ref_db_path=None
             """
             
             df_target = con_t.execute(sql_t, full_params + [min_freq]).fetch_df()
-            
+            total_target = con_t.execute(f"SELECT count(*) FROM corpus WHERE 1=1 {full_where}", full_params).fetchone()[0]
+
             if df_target.empty:
                 continue
                 
-            total_target = con_t.execute(f"SELECT count(*) FROM corpus WHERE 1=1 {full_where}", full_params).fetchone()[0]
+            if total_target == 0:
+                continue
             
             # Merge and Calculate
             merged = pd.merge(df_target, df_ref, on='token', how='outer', suffixes=('_t', '_r'))
