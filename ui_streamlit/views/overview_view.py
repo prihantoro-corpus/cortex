@@ -428,6 +428,18 @@ def _render_classification_tab(db_path, key_suffix):
     Renders the Topic & Sentiment Labeling UI with method selection.
     """
     st.markdown("#### 🏷️ Automatic Corpus Labeling")
+    
+    with st.expander("💡 **Method & Transparency: Classification**", expanded=False):
+        st.markdown("""
+        **Sentiment Analysis:** Uses the VADER lexicon to score sentences as Positive, Negative, or Neutral.
+        
+        **Topic Classification:**
+        - **TF-IDF (Fast):** Uses pre-defined keywords to categorize text into standard topics like Sport, Politics, etc.
+        - **BERTopic (Accurate):** Uses advanced embedding models to automatically discover "natural" topics in your specific corpus.
+        
+        **Editability:** You can rename topics or adjust keywords in the results preview before applying them.
+        """)
+        
     st.caption("Automatically tag sentences with **Sentiment** and **Topic** using local NLP libraries.")
     
     # Check Columns
@@ -678,16 +690,28 @@ def _render_subcorpus_stats(db_path, key_suffix=""):
     try:
         # 1. By File Name
         st.markdown("##### 📂 By File Name")
-        df_files = conn.execute("SELECT filename, COUNT(*) as TokenCount FROM corpus GROUP BY filename ORDER BY TokenCount DESC").fetch_df()
+        df_files = conn.execute("""
+            SELECT 
+                filename, 
+                COUNT(*) as Tokens,
+                CAST(COUNT(DISTINCT _token_low) AS FLOAT) / COUNT(*) as TTR
+            FROM corpus 
+            GROUP BY filename 
+            ORDER BY Tokens DESC
+        """).fetch_df()
         
         if not df_files.empty:
             c1, c2 = st.columns([2, 1])
             with c1:
                 # Use Bar Chart for files as there might be many
-                fig = px.bar(df_files, x='filename', y='TokenCount', title="Tokens per File")
+                fig = px.bar(df_files, x='filename', y='Tokens', title="Tokens per File")
                 st.plotly_chart(fig, use_container_width=True)
             with c2:
-                st.dataframe(df_files, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_files.style.format({'TTR': '{:.4f}'}), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
         else:
             st.info("No file information available.")
             
@@ -753,16 +777,29 @@ def _render_subcorpus_stats(db_path, key_suffix=""):
                     st.warning(f"Attribute **{attr}** has too many unique values ({unique_count}) to visualize effectively.")
                     continue
                     
-                attr_data = conn.execute(f"SELECT {attr} as Value, COUNT(*) as Count FROM corpus WHERE {attr} IS NOT NULL GROUP BY {attr} ORDER BY Count DESC").fetch_df()
+                attr_data = conn.execute(f"""
+                    SELECT 
+                        {attr} as Value, 
+                        COUNT(*) as Tokens,
+                        CAST(COUNT(DISTINCT _token_low) AS FLOAT) / COUNT(*) as TTR
+                    FROM corpus 
+                    WHERE {attr} IS NOT NULL 
+                    GROUP BY {attr} 
+                    ORDER BY Tokens DESC
+                """).fetch_df()
                 
                 if not attr_data.empty:
                     st.write(f"**Attribute: {attr}**")
                     ac1, ac2 = st.columns([1, 1])
                     with ac1:
-                         fig_a = px.pie(attr_data, names='Value', values='Count', title=f"Distribution by {attr}")
+                         fig_a = px.pie(attr_data, names='Value', values='Tokens', title=f"Distribution by {attr}")
                          st.plotly_chart(fig_a, use_container_width=True)
                     with ac2:
-                         st.dataframe(attr_data, use_container_width=True, hide_index=True)
+                         st.dataframe(
+                             attr_data.style.format({'TTR': '{:.4f}'}), 
+                             use_container_width=True, 
+                             hide_index=True
+                         )
                     st.markdown("---")
         else:
             st.caption("No additional XML attributes detected.")

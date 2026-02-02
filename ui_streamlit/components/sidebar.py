@@ -15,7 +15,7 @@ def render_sidebar():
     st.sidebar.title("Tools (v1.1 Stanza)")
     view = st.sidebar.radio(
         "Go to", 
-        ["Overview", "Concordance", "N-Gram", "Collocation", "Dictionary", "Keyword", "Distribution"]
+        ["Overview", "Concordance", "N-Gram", "Collocation", "Dictionary", "Keyword", "Distribution", "Statistical Testing"]
     )
     
     st.sidebar.markdown("---")
@@ -240,7 +240,13 @@ def render_sidebar():
         with st.sidebar.expander("Local AI Settings", expanded=False):
             o_url = st.text_input("Ollama URL", value=get_state('ollama_url'), key="sidebar_ollama_url")
             from core.ai_service import get_available_models
-            available_models = get_available_models(o_url)
+            
+            # Cache model fetching to avoid network lag on every rerun
+            @st.cache_data(ttl=60, show_spinner=False)
+            def get_cached_models(url):
+                return get_available_models(url)
+            
+            available_models = get_cached_models(o_url)
             current_model = get_state('ai_model')
             if available_models:
                 if current_model not in available_models: available_models.append(current_model)

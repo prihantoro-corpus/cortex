@@ -8,63 +8,9 @@ architecture_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if architecture_root not in sys.path:
     sys.path.insert(0, architecture_root)
 
-# Force reload of backend modules to ensure fresh code is used (fixes caching issues)
+# Force reload logic removed to improve performance. 
+# Streamlit handles module reloading natively in development mode.
 import importlib
-try:
-    if 'core.io_utils' in sys.modules:
-        importlib.reload(sys.modules['core.io_utils'])
-    if 'core.config' in sys.modules:
-        importlib.reload(sys.modules['core.config'])
-    if 'core.preprocessing.xml_parser' in sys.modules:
-        importlib.reload(sys.modules['core.preprocessing.xml_parser'])
-    if 'core.preprocessing.corpus_loader' in sys.modules:
-        importlib.reload(sys.modules['core.preprocessing.corpus_loader'])
-    if 'core.preprocessing.tagging' in sys.modules:
-        importlib.reload(sys.modules['core.preprocessing.tagging'])
-#     if 'core.preprocessing.corpus_loader' in sys.modules:
-#         importlib.reload(sys.modules['core.preprocessing.corpus_loader'])
-    if 'core.modules.overview' in sys.modules:
-        importlib.reload(sys.modules['core.modules.overview'])
-#     if 'core.ai_service' in sys.modules:
-#         importlib.reload(sys.modules['core.ai_service'])
-#     if 'core.modules.ngram' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.ngram'])
-#     if 'core.modules.dictionary_service' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.dictionary_service'])
-#     if 'core.modules.concordance' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.concordance'])
-#     if 'core.modules.comparison_analysis' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.comparison_analysis'])
-#     if 'core.ai_service' in sys.modules:
-#         importlib.reload(sys.modules['core.ai_service'])
-#     if 'core.modules.collocation' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.collocation'])
-#     if 'core.modules.collocation_patterns' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.collocation_patterns'])
-    if 'core.visualiser.wordcloud' in sys.modules:
-        importlib.reload(sys.modules['core.visualiser.wordcloud'])
-#     if 'ui_streamlit.views.keyword_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.keyword_view'])
-#     if 'ui_streamlit.caching' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.caching'])
-#     if 'ui_streamlit.components.sidebar' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.components.sidebar'])
-#     if 'ui_streamlit.components.result_display' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.components.result_display'])
-#     if 'ui_streamlit.views.concordance_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.concordance_view'])
-#     if 'ui_streamlit.views.collocation_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.collocation_view'])
-#     if 'ui_streamlit.views.dictionary_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.dictionary_view'])
-#     if 'ui_streamlit.views.ngram_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.ngram_view'])
-#     if 'core.modules.distribution' in sys.modules:
-#         importlib.reload(sys.modules['core.modules.distribution'])
-#     if 'ui_streamlit.views.distribution_view' in sys.modules:
-#         importlib.reload(sys.modules['ui_streamlit.views.distribution_view'])
-except Exception as e:
-    pass
 
 # Debug Imports
 try:
@@ -77,6 +23,7 @@ try:
     from ui_streamlit.views.collocation_view import render_collocation_view
     from ui_streamlit.views.keyword_view import render_keyword_view
     from ui_streamlit.views.distribution_view import render_distribution_view
+    from ui_streamlit.views.statistical_testing_view import render_statistical_testing_view
 except ImportError as e:
     st.error(f"Import Error: {e}")
     st.stop()
@@ -320,6 +267,8 @@ def main():
         render_keyword_view()
     elif current_view == "Distribution":
         render_distribution_view()
+    elif current_view == "Statistical Testing":
+        render_statistical_testing_view()
     else:
         st.write("Select a module from the sidebar.")
 

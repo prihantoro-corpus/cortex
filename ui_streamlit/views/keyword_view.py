@@ -39,6 +39,23 @@ def parse_frequency_list_file(uploaded_file):
 
 def render_keyword_view():
     st.header("Keyword Analysis")
+
+    with st.expander("💡 **Method & Transparency: Keyword Analysis**", expanded=False):
+        st.markdown("""
+        **Goal:** Identify words that are unusually frequent (or infrequent) in your **Target Corpus** compared to a **Reference Corpus**.
+        
+        **Data Used:** 
+        - Word frequencies in the **Target Corpus** (or search results).
+        - Word frequencies in a **Reference Corpus** (e.g., Brown Corpus, BNC, or another uploaded file).
+        
+        **Statistical Measures:**
+        - **Log-Likelihood (LL):** Measures **statistical significance** (evidence strength). High LL means the difference in usage is very unlikely to be due to chance.
+        - **Log Ratio:** Measures **effect size** (magnitude of difference). A Log Ratio of +3 means the word is $2^3 = 8$ times more frequent in the target than in the reference.
+        
+        **Keyword Types:**
+        - **Positive Keywords (High Keyness):** Words that are used significantly **more** in the target than in the reference.
+        - **Negative Keywords (Low Keyness):** Words that are used significantly **less** (or are missing) in the target compared to the reference.
+        """)
     
     # 1. Corpus Selection
     current_path = get_state('current_corpus_path')

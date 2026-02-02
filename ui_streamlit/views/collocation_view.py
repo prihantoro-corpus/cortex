@@ -13,6 +13,20 @@ from ui_streamlit.components.result_display import render_kwic_table
 def render_collocation_view():
     st.header("Collocation Analysis")
     
+    with st.expander("💡 **Method & Transparency: Collocation Analysis**", expanded=False):
+        st.markdown("""
+        **Goal:** Identify words that appear near your 'Node Word' more frequently than would be expected by chance.
+        
+        **Data Used:** 
+        - Frequencies of the node word and potential collocates within a specific **Span (Window)**.
+        - Global frequencies of these words across the entire (sub)corpus.
+        
+        **Statistical Measures:**
+        - **Log-Likelihood (LL):** Measures **statistical significance**. High LL means the association is very unlikely to be a coincidence. (Recommended for identifying key associations).
+        - **Mutual Information (MI):** Measures **association strength**. High MI indicates that the words are very "exclusive" to each other, even if they are infrequent.
+        - **Observed (Obs):** The actual number of times the words appeared together.
+        """)
+    
     corpus_path = get_state('current_corpus_path')
     corpus_name = get_state('current_corpus_name', 'Corpus')
     corpus_stats = get_state('corpus_stats')
