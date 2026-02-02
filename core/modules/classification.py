@@ -10,11 +10,12 @@ from deep_translator import GoogleTranslator
 _TRANSLATORS = {}
 
 
-# Optional BERTopic imports (will be checked at runtime)
+# Optional BERTopic imports will be checked at runtime
+BERTOPIC_AVAILABLE = True
 try:
-    from bertopic import BERTopic
-    from sentence_transformers import SentenceTransformer
-    BERTOPIC_AVAILABLE = True
+    importlib_util = __import__('importlib.util').util
+    if importlib_util.find_spec('bertopic') is None or importlib_util.find_spec('sentence_transformers') is None:
+        BERTOPIC_AVAILABLE = False
 except ImportError:
     BERTOPIC_AVAILABLE = False
 
@@ -255,6 +256,10 @@ def classify_topics_bertopic(texts, n_topics='auto', min_topic_size=10):
     
     # Filter out empty texts
     clean_texts = [t if isinstance(t, str) and t.strip() else "" for t in texts]
+    
+    # Lazy load heavy modules
+    from bertopic import BERTopic
+    from sentence_transformers import SentenceTransformer
     
     # Use lightweight sentence transformer
     embedding_model = SentenceTransformer('all-MiniLM-L6-v2')

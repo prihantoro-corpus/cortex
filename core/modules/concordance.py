@@ -355,6 +355,7 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
             right_part = formatted_line[node_start_idx:] 
             
             kwic_rows.append({
+                "match_id": int(match_id),
                 "Left": " ".join(left_part),
                 "Node": " ".join(node_orig_tokens),
                 "Right": " ".join(right_part),
@@ -363,7 +364,66 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
             })
 
         return (kwic_rows, total_matches, raw_target_input, literal_freq, sent_ids, breakdown_df)
-
     except Exception as e:
         print(f"Error in generate_kwic: {e}")
         return ([], 0, raw_target_input, 0, [], pd.DataFrame())
+
+def persist_annotations_to_db(db_path: str, annotations: dict):
+    """
+    Saves manual annotations into the active session's DuckDB database.
+    - Adds new columns if they don't exist.
+    - Updates rows based on match_id.
+    """
+    if not db_path or not annotations:
+        return False, "No database or annotations provided."
+
+    con = duckdb.connect(db_path)
+    try:
+        # 1. Discover all unique attributes
+        all_attrs = set()
+        for m_id, anns in annotations.items():
+            if isinstance(anns, list):
+                for a in anns:
+                    if a.get('attr'): all_attrs.add(a['attr'].strip())
+            elif isinstance(anns, dict):
+                if anns.get('attr'): all_attrs.add(anns['attr'].strip())
+
+        if not all_attrs:
+            return False, "No valid attributes found to save."
+
+        # 2. Add columns if missing
+        cols_info = con.execute("PRAGMA table_info(corpus)").fetchall()
+        existing_cols = {c[1].lower() for c in cols_info}
+        
+        for attr in all_attrs:
+            if attr.lower() not in existing_cols:
+                con.execute(f"ALTER TABLE corpus ADD COLUMN {attr} VARCHAR")
+                print(f"Added new column: {attr}")
+
+        # 3. Batch Update
+        # Group by attribute to minimize SQL calls
+        attr_updates = {} # {attr: [(val, id), ...]}
+        for m_id, anns in annotations.items():
+            if isinstance(anns, list):
+                for a in anns:
+                    at = a.get('attr')
+                    av = a.get('val')
+                    if at and av:
+                        if at not in attr_updates: attr_updates[at] = []
+                        attr_updates[at].append((av, int(m_id)))
+            elif isinstance(anns, dict):
+                at = anns.get('attr')
+                av = anns.get('val')
+                if at and av:
+                    if at not in attr_updates: attr_updates[at] = []
+                    attr_updates[at].append((av, int(m_id)))
+
+        for attr, values in attr_updates.items():
+            con.executemany(f"UPDATE corpus SET {attr} = ? WHERE id = ?", values)
+        
+        con.commit()
+        return True, f"Successfully saved annotations to {len(attr_updates)} attributes."
+    except Exception as e:
+        return False, f"Database Error: {e}"
+    finally:
+        con.close()
