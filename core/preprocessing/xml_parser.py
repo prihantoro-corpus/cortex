@@ -102,8 +102,12 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False, stanza_processo
     sent_map = {}
     detected_attrs = {} 
     
-    excluded_attrs = ('n', 'id', 'num', 'lang')
-    base_root_attrs = {k: v for k, v in root.attrib.items() if k.lower() not in excluded_attrs}
+    excluded_attrs = ('n', 'num', 'lang') # Removed 'id' from exclusion, manually handled below
+    base_root_attrs = {}
+    for k, v in root.attrib.items():
+        if k.lower() in excluded_attrs: continue
+        key_name = 'doc_id' if k.lower() == 'id' else k
+        base_root_attrs[key_name] = v
     
     for k, v in base_root_attrs.items():
         if k not in detected_attrs: detected_attrs[k] = set()
@@ -116,7 +120,16 @@ def parse_xml_content_to_df(xml_input, force_vertical_xml=False, stanza_processo
 
     def traverse_and_collect(element, current_attrs, target_tags):
         new_attrs = current_attrs.copy()
-        new_attrs.update({k: v for k, v in element.attrib.items() if k.lower() not in excluded_attrs})
+        
+        # Prepare attributes for this element, checking exclusions and renaming id
+        elem_attrs = {}
+        for k, v in element.attrib.items():
+            if k.lower() in excluded_attrs: continue
+            key_name = 'doc_id' if k.lower() == 'id' else k
+            elem_attrs[key_name] = v
+            
+        new_attrs.update(elem_attrs)
+        
         if element.tag in target_tags:
             elements_to_process.append((element, new_attrs))
             return 
