@@ -20,6 +20,13 @@ def render_sidebar():
     
     st.sidebar.markdown("---")
     
+    # 1.5. Corpus Builder Links
+    st.sidebar.title("CORPUS BUILDER")
+    st.sidebar.markdown("- [YouTube](https://youtube-corpus.streamlit.app/)")
+    st.sidebar.markdown("- more to come in the future")
+    
+    st.sidebar.markdown("---")
+    
     # 2. Corpus Selection
     st.sidebar.title("Corpus Selection")
     
