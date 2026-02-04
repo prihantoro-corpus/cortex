@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<corpus name="XMLTagDemo" lang="EN">
+<text id="1234">
+<PN att="val">
+John	NN	john
+</PN>
+works	VB	works
+at	PP	at
+<PN att="val">
+New	JJ	new
+Era	NN	era
+Pizzeria	NN	pizzeria
+</PN>
+</text>
+<text id="5678">
+The	DT	the
+<PN type="place">
+Empire	NNP	Empire
+State	NNP	State
+Building	NNP	Building
+</PN>
+is	VBZ	be
+in	IN	in
+<PN type="place">
+New	NNP	New
+York	NNP	York
+City	NNP	City
+</PN>
+.	.	.
+</text>
+</corpus>

@@ -1,0 +1,32 @@
+<corpus name="StudentEssays" lang="EN" raw="yes">
+    <text id="E001" cefr="1" grade="45" time_abroad="0">
+    My name is Sarah. I am a student. I like school. My dog is big. I have two cats. They play everyday. The sun is hot. I eat apple. 
+    </text>
+    <text id="E002" cefr="1" grade="50" time_abroad="0">
+    I go to the park. The park is green. I see a bird. The bird flies. I throw the ball. My friend catches it. We are happy.
+    </text>
+    <text id="E003" cefr="2" grade="60" time_abroad="2">
+    Yesterday I went to the market to buy some fruit. I bought three apples and one banana. The weather was nice and sunny. I met my teacher there. She was buying vegetables for dinner.
+    </text>
+    <text id="E004" cefr="2" grade="65" time_abroad="3">
+    My favorite hobby is playing football. I play every weekend with my friends. We usually play in the stadium near my house. It is very exciting and healthy.
+    </text>
+    <text id="E005" cefr="3" grade="70" time_abroad="6">
+    The education system in my country is changing rapidly. Students are learning more about technology. Computers are used in every classroom. This helps us prepare for the future jobs which require digital skills.
+    </text>
+    <text id="E006" cefr="3" grade="72" time_abroad="8">
+    Traffic congestion is a major problem in big cities. People spend hours in their cars commuting to work. This causes stress and pollution. Public transportation should be improved to solve this issue effectively.
+    </text>
+    <text id="E007" cefr="4" grade="80" time_abroad="12">
+    Globalization has significantly impacted local cultures. While it provides access to international products, it also threatens traditional customs. We must strive to balance modernization with the preservation of our unique heritage and identity.
+    </text>
+    <text id="E008" cefr="5" grade="88" time_abroad="18">
+    The correlation between economic stability and political unrest is evident in developing nations. When inflation rises, the populace becomes dissatisfied, leading to protests. Therefore, strictly monetary policies are insufficient; social programs are essential for stability.
+    </text>
+    <text id="E009" cefr="5" grade="92" time_abroad="24">
+    Addressing climate change requires a multifaceted approach involving policy reform, technological innovation, and individual behavioral shifts. Relying solely on renewable energy is insufficient without simpler consumption patterns and rigorous industrial regulations.
+    </text>
+    <text id="E010" cefr="6" grade="98" time_abroad="36">
+    The ephemeral nature of digital discourse necessitates a reevaluation of classical rhetorical frameworks. As communication becomes increasingly fragmented and multimodal, the traditional linear pedagogical models fail to capture the nuance of contemporary interaction. Thus, a paradigm shift in linguistic education is imperative.
+    </text>
+</corpus>
