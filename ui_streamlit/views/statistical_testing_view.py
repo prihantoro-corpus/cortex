@@ -1078,14 +1078,69 @@ def render_statistical_testing_view():
         with st.expander("📝 **Configure Statistical Test**", expanded=True):
             st.markdown("### Continuous Variable (Dependent)")
             
-            # Query input
-            query = st.text_input(
-                "Search Query",
-                value=get_state('stats_query', '_JJ*'),
-                help="Enter search query using CORTEX syntax",
-                key="stats_query_input"
-            )
+            # Search Mode Selection
+            search_mode = st.radio("Search Mode", ["Standard", "Natural Language (Rule)", "Natural Language (AI)"], horizontal=True, key="stats_search_mode")
             
+            query = ""
+            
+            if search_mode == "Natural Language (AI)":
+                nl_query = st.text_area("Describe your statistical query", height=70, placeholder="e.g. Compare usage of 'make' followed by a noun between groups", key="stats_nl_query_ai")
+                
+                col_ai1, col_ai2 = st.columns([1, 3])
+                with col_ai1:
+                    analyze_btn = st.button("Interpret Query", type="primary", key="stats_ai_btn")
+                
+                if analyze_btn and nl_query:
+                    with st.spinner("AI is determining search parameters..."):
+                        pos_defs = get_pos_definitions(corpus_path) or {}
+                        lang = get_corpus_language(corpus_path)
+                        if lang: pos_defs['__language_context__'] = lang
+
+                        from core.ai_service import parse_nl_query
+                        params, err = parse_nl_query(
+                            nl_query, 
+                            "concordance", # Reusing concordance parser as it returns 'query' string
+                            ai_provider=get_state('ai_provider'),
+                            gemini_api_key=get_state('gemini_api_key'),
+                            ollama_url=get_state('ollama_url'),
+                            ollama_model=get_state('ai_model'),
+                            pos_definitions=pos_defs
+                        )
+                        
+                        if params:
+                            query = params.get('query', '')
+                            set_state('stats_query', query)
+                            st.success(f"✓ AI interpreted: '{query}'")
+                        else:
+                            st.error(f"Could not parse query: {err}")
+                
+                # Use query from state if available
+                query = get_state('stats_query', '')
+
+            elif search_mode == "Natural Language (Rule)":
+                nl_query = st.text_input("Enter natural language rule", placeholder="e.g. adjective followed by noun", key="stats_nl_query_rule")
+                if nl_query:
+                    pos_defs = get_pos_definitions(corpus_path) or {}
+                    reverse_pos_map = {v.lower(): k for k, v in pos_defs.items() if v}
+                    
+                    from core.modules.concordance import parse_nl_query_rules_only
+                    params, err = parse_nl_query_rules_only(nl_query, "concordance", reverse_pos_map=reverse_pos_map)
+                    
+                    if params:
+                        query = params.get('query', '')
+                        st.caption(f"✓ Rule parsed: `{query}`")
+                    else:
+                        st.error(f"Rule Error: {err}")
+            
+            else: # Standard
+                query = st.text_input(
+                    "Search Query",
+                    value=get_state('stats_query', '_JJ*'),
+                    help="Use * for wildcards (e.g. run*), _TAG for POS (e.g. _NN*), [lemma] for lemma, token_POS (e.g. light_V*), or <TAG> for XML tags (e.g. <EVAL sentiment=\"positive\">)",
+                    key="stats_query_input"
+                )
+                set_state('stats_query', query)
+
             # Query syntax help
             with st.expander("💡 Query Syntax Examples"):
                 st.markdown("""
@@ -1095,6 +1150,8 @@ def render_statistical_testing_view():
                 | `*wildcard*` | Wildcard matching | `*ing` (words ending in 'ing') |
                 | `[lemma]` | Lemma search | `[run]` (all forms of 'run') |
                 | `token_POS` | Token + POS combined | `light_V*` ('light' as verb) |
+                | `<TAG>` | XML tag search | `<PN>` (all person/place names) |
+                | `<TAG attr="val">` | XML tag with attributes | `<PN type="human">` (people only) |
                 | `(word1\|word2)` | OR pattern (NEW) | `(small\|big\|little)` |
                 | `_POS1\|POS2` | Multiple POS tags | `_NN*\|VB*` (nouns OR verbs) |
                 """)
@@ -1109,14 +1166,14 @@ def render_statistical_testing_view():
                                 preview = preview_query_matches(
                                     corpus_path, 
                                     query, 
-                                    min_freq=3
+                                    min_freq=min_freq if 'min_freq' in locals() else 3
                                 )
                                 
                                 if 'error' in preview:
                                     st.error(preview['error'])
                                 else:
                                     st.success(f"✅ **{preview['total_words']} unique words** matched (total freq: {preview['total_freq']:,})")
-                                    st.info(f"📊 With min_freq=3: **{preview['words_above_threshold']} words** will be tested")
+                                    st.info(f"📊 With min_freq: **{preview['words_above_threshold']} words** will be tested")
                                     st.caption(f"Sample: {', '.join(preview['sample_words'][:10])}")
                             except Exception as e:
                                 st.error(f"Error previewing query: {str(e)}")

@@ -180,7 +180,7 @@ def render_concordance_view():
         with st.expander("Search Controls", expanded=True):
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
-                 search_term = st.text_input("Node Word(s)", value=get_state('kwic_search_term'), key="kwic_input", help="Use * for wildcards (e.g. run*)")
+                 search_term = st.text_input("Node Word(s)", value=get_state('kwic_search_term'), key="kwic_input", help="Use * for wildcards (e.g. run*), _TAG for POS (e.g. _NN), [lemma] for lemma, token_POS (e.g. light_V*), or <TAG> for XML tags (e.g. <PN type=\"human\">)")
             with col2:
                  window_size = st.slider("Context Window", 1, 20, 5, key="kwic_window")
             with col3:

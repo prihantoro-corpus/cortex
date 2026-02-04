@@ -147,16 +147,24 @@ def render_sidebar():
                 import sys
                 import importlib
                 try:
-                    if 'core.preprocessing.xml_parser' in sys.modules:
-                        importlib.reload(sys.modules['core.preprocessing.xml_parser'])
+                    # Reload parser and loader
+                    for mod in ['core.preprocessing.xml_parser', 'core.preprocessing.corpus_loader']:
+                        if mod in sys.modules:
+                            importlib.reload(sys.modules[mod])
                     
-                    if 'core.preprocessing.corpus_loader' in sys.modules:
-                        importlib.reload(sys.modules['core.preprocessing.corpus_loader'])
-                        
+                    # Reload analytical modules to pick up hotfixes
+                    for mod in ['core.modules.concordance', 'core.modules.collocation', 'core.modules.distribution', 'core.modules.statistical_testing', 'ui_streamlit.caching']:
+                        if mod in sys.modules:
+                            importlib.reload(sys.modules[mod])
+                    
+                    # Clear Streamlit cache to force re-execution of queries
+                    st.cache_data.clear()
+                    
                     # Re-import the function from the reloaded module
                     from core.preprocessing.corpus_loader import load_built_in_corpus
-                    
+                    st.toast("Internal search modules reloaded! 🚀")
                 except Exception as e:
+                    st.sidebar.error(f"Reload Error: {e}")
                     print(f"Reload Error: {e}")
 
                 progress_bar = st.sidebar.progress(0)

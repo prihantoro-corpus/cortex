@@ -76,7 +76,7 @@ def render_distribution_view():
                     "Node Word(s)", 
                     value=get_state('dist_search_term', ''), 
                     key="dist_input", 
-                    help="Use * for wildcards (e.g. run*), _TAG for POS (e.g. _NN), or [lemma] for lemma (e.g. [run])"
+                    help="Use * for wildcards (e.g. run*), _TAG for POS (e.g. _NN), [lemma] for lemma (e.g. [run]), token_POS (e.g. light_V*), or <TAG> for XML tags (e.g. <PN type=\"place\">)"
                 )
             else:
                 c1, c2 = st.columns(2)

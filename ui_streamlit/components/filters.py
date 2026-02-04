@@ -44,9 +44,9 @@ def render_xml_restriction_filters(db_path, view_name, corpus_name=None):
                             with c2:
                                 val_max = st.number_input(f"Max", min_value=min_val, max_value=max_val, value=max_val, key=f"xml_int_max_{attr}_{view_name}")
                             
-                            if val_min <= val_max:
+                            if val_min > min_val or val_max < max_val:
                                 selected_filters[attr] = {'type': 'range', 'min': val_min, 'max': val_max}
-                            else:
+                            elif val_min > val_max:
                                 st.warning("Min > Max")
                         except Exception as e:
                             st.error(f"Error loading {attr}: {e}")
