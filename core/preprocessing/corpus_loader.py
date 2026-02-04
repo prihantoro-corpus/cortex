@@ -83,7 +83,8 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code, selected_for
                 result = parse_xml_content_to_df(
                     cleaned_xml, 
                     stanza_processor=stanza_proc, 
-                    lang_code=source_lang_code
+                    lang_code=source_lang_code,
+                    preserve_inline_tags=True
                 )
                 if 'df_data' in result:
                     if explicit_lang_code == 'OTHER' and result.get('lang_code') not in ('XML', 'OTHER'):
@@ -246,13 +247,13 @@ def load_xml_parallel_corpus(src_file, tgt_file, src_lang_code, tgt_lang_code, p
         src_file.seek(0)
         src_content = src_file.read().decode('utf-8', errors='ignore')
         src_cleaned = sanitize_xml_content(src_content)
-        src_result = parse_xml_content_to_df(src_cleaned)
+        src_result = parse_xml_content_to_df(src_cleaned, preserve_inline_tags=True)
 
         if progress_callback: progress_callback(0.5, "Parsing target...")
         tgt_file.seek(0)
         tgt_content = tgt_file.read().decode('utf-8', errors='ignore')
         tgt_cleaned = sanitize_xml_content(tgt_content)
-        tgt_result = parse_xml_content_to_df(tgt_cleaned)
+        tgt_result = parse_xml_content_to_df(tgt_cleaned, preserve_inline_tags=True)
         
     except Exception as e:
         return {'error': f"Parsing failed: {e}"}

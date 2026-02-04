@@ -6,6 +6,7 @@ TAGSET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tagset')
 
 # Metadata mapping for known corpora (Display Name -> Relative Path from CORPORA_DIR)
 KNOWN_CORPORA_MAP = {
+    "XML Tag Demo (EN)": "english/xml_tag_demo.xml",
     "ID-BPPT (XML Tagged)": "indonesian/ID-BPPT-tagged.xml",
     "EN-BPPT (XML Tagged)": "english/EN-BPPT-tagged.xml",
     "Brown 50% Only (XML EN TAGGED)": "english/BrownCorpus.xml",
@@ -35,29 +36,34 @@ def get_available_corpora():
                 
                 # Get relative path from CORPORA_DIR
                 rel_path = os.path.relpath(full_path, CORPORA_DIR)
+                # Normalize path separators for comparison
+                rel_path_normalized = rel_path.replace(os.path.sep, '/')
                 
-                # If key known by filename, map it
-                # We check simply if the filename (basename) matches the known map
-                basename = os.path.basename(f)
-                
-                if basename in filename_to_name:
-                    display_name = filename_to_name[basename]
+                # Check if this relative path matches a known corpus
+                if rel_path_normalized in filename_to_name:
+                    display_name = filename_to_name[rel_path_normalized]
                     available[display_name] = rel_path
                 else:
-                    # Use relative path as display name for nested files, or just filename if root
+                    # Use relative path as display name for unknown files
                     if root == CORPORA_DIR:
                          available[f] = f
                     else:
                          # e.g. "indonesian/sample.txt"
-                         # Normalize separators for display
-                         display_rel = rel_path.replace(os.path.sep, '/')
-                         available[display_rel] = rel_path
+                         available[rel_path_normalized] = rel_path
 
     return available
 
 
 
 BUILT_IN_CORPUS_DETAILS = {
+    "XML Tag Demo (EN)":
+        """
+        A **demo corpus** showcasing XML tag-based search capabilities. Contains 12 sentences with rich inline markup including person/place names (`<PN>`), organizations (`<ORG>`), numbers (`<NUM>`), evaluative language (`<EVAL>`), and technical terms.
+        <br><br>
+        **Use this to test**: `<PN type="person">`, `<EVAL sentiment="positive">`, `at <ORG type="university">`, etc.
+        <br><br>
+        **Guide**: See `XML_TAG_DEMO_GUIDE.md` in the english folder.
+        """,
     "ID-BPPT (XML Tagged)": 
         """
         The **ID-BPPT Corpus** is a tagged Indonesian corpus (POS/Lemma). 

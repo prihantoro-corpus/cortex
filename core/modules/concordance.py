@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from collections import Counter
 from core.statistics.frequency import pmw_to_zipf, zipf_to_band
+import math
 
 def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpus_name, pattern_collocate_input="", pattern_collocate_pos_input="", pattern_window=0, limit=100, do_random_sample=False, is_parallel_mode=False, show_pos=False, show_lemma=False, xml_where_clause="", xml_params=[]):
     """
@@ -12,9 +13,21 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
         return ([], 0, raw_target_input, 0, [], pd.DataFrame())
 
     try:
+        import streamlit as st
+    except:
+        st = None
+
+    try:
         con = duckdb.connect(corpus_db_path, read_only=True)
         
-        search_terms = raw_target_input.split()
+        # 1. Robust Query Tokenization
+        # Split by space but preserve <tag attr="val"> blocks
+        search_terms = []
+        import re
+        # This regex finds <...> blocks OR non-space sequences
+        query_pattern = r'<[^>]+>|[^\s]+'
+        search_terms = re.findall(query_pattern, raw_target_input)
+        
         primary_target_len = len(search_terms)
         
         # Check raw mode
@@ -28,6 +41,21 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
         except: pass
             
         def parse_term(term):
+            # XML Tag Check (e.g., <PN> or <PN type="human">)
+            xml_tag_match = re.match(r'<(\w+)(?:\s+(.+?))?>', term, re.IGNORECASE)
+            if xml_tag_match:
+                tag_name = xml_tag_match.group(1).lower() # Normalize to lowercase
+                attrs_str = xml_tag_match.group(2)
+                attrs = {}
+                if attrs_str:
+                    # Parse attributes: attr="value" or attr='value'
+                    attr_pattern = r'(\w+)=(["\'])([^"\']*)\2'
+                    for match in re.finditer(attr_pattern, attrs_str):
+                        attr_key = match.group(1).lower()
+                        attr_val = match.group(3)
+                        attrs[attr_key] = attr_val
+                return {'type': 'xml_tag', 'tag': tag_name, 'attrs': attrs}
+            
             lemma_match = re.search(r"\[(.*?)\]", term)
             if lemma_match: return {'type': 'lemma', 'val': lemma_match.group(1).strip().lower()}
             # Combined Token_POS Check (e.g. light_V*)
@@ -43,23 +71,46 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
 
         search_components = [parse_term(term) for term in search_terms]
 
-        # Dynamic SELECT construction to capture full multi-word match
-        token_concat_parts = [f"c{i}.token" for i in range(len(search_components))]
-        # Use DuckDB's concatenation operator ||
-        if len(token_concat_parts) > 1:
-            match_token_expr = "(" + " || ' ' || ".join(token_concat_parts) + ")"
-        else:
-            match_token_expr = "c0.token"
-            
-        query_select = f"SELECT c0.id, {match_token_expr} as match_token FROM corpus c0"
+        # 2. Build Query with Dynamic Lengths
+        token_concat_parts = []
+        current_offset_exprs = []
         query_joins = ""
+        
+        for k, comp in enumerate(search_components):
+            alias = f"c{k}"
+            
+            # For match_token display, we need to handle multi-token tags
+            if comp['type'] == 'xml_tag':
+                tag_name = comp['tag']
+                # Concatenate tokens within the tag span
+                # We use a subquery to gather tokens from id to id + tag_len - 1
+                token_expr = f"(SELECT string_agg(token, ' ') FROM corpus c_sub WHERE c_sub.id BETWEEN {alias}.id AND {alias}.id + {alias}.{tag_name}_len - 1)"
+                current_offset_exprs.append(f"COALESCE({alias}.{tag_name}_len, 1)")
+            else:
+                token_expr = f"{alias}.token"
+                current_offset_exprs.append("1")
+                
+            token_concat_parts.append(token_expr)
+            
+            if k > 0:
+                # The join position is at the end of the PREVIOUS component
+                prev_alias = f"c{k-1}"
+                prev_offset = current_offset_exprs[k-1]
+                query_joins += f" JOIN corpus {alias} ON {alias}.id = {prev_alias}.id + {prev_offset} "
+        
+        # Calculate TOTAL match length expression for the context query
+        total_len_expr = " + ".join(current_offset_exprs)
+        
+        match_token_expr = "(" + " || ' ' || ".join(token_concat_parts) + ")" if len(token_concat_parts) > 1 else token_concat_parts[0]
+        
+        query_select = f"SELECT c0.id, {total_len_expr} as total_len, {match_token_expr} as match_token FROM corpus c0"
+        # query_joins already built in loop above
         query_where = []
         query_params = []
         
         for k, comp in enumerate(search_components):
             alias = f"c{k}"
-            if k > 0: query_joins += f" JOIN corpus {alias} ON {alias}.id = c0.id + {k} "
-            
+    
             if comp['type'] == 'token_pos':
                  t_val = comp['token']
                  p_val = comp['pos']
@@ -82,6 +133,25 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
                      else:
                         query_where.append(f"{alias}.pos = ?")
                         query_params.append(p_val)
+
+            elif comp['type'] == 'xml_tag':
+                tag_name = comp['tag']
+                attrs = comp['attrs']
+                
+                # Check if it's the START of the tag instance
+                tag_start_col = f"in_{tag_name}_start"
+                query_where.append(f"{alias}.{tag_start_col} = TRUE")
+                
+                # Add attribute filters
+                for attr_key, attr_val in attrs.items():
+                    attr_col = f"{tag_name}_{attr_key}"
+                    if '*' in attr_val:
+                        regex_pat = '^' + re.escape(attr_val).replace(r'\*', '.*') + '$'
+                        query_where.append(f"regexp_matches({alias}.{attr_col}, ?)")
+                        query_params.append(regex_pat)
+                    else:
+                        query_where.append(f"{alias}.{attr_col} = ?")
+                        query_params.append(attr_val)
 
             elif comp['type'] == 'word':
                 val = comp['val']
@@ -185,25 +255,44 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
             return ([], 0, raw_target_input, 0, [], pd.DataFrame())
 
         all_match_ids = df_matches['id'].tolist()
+        all_match_lens = df_matches['total_len'].tolist()
         matching_tokens_at_node_one = df_matches['match_token'].tolist()
         literal_freq = len(all_match_ids)
         
-        filtered_match_ids = all_match_ids
-
-        total_matches = len(filtered_match_ids)
+        # Zip IDs and Lengths to track spans
+        match_spans = list(zip(all_match_ids, all_match_lens))
+        total_matches = len(match_spans)
         if total_matches == 0:
             con.close()
             return ([], 0, raw_target_input, literal_freq, [], pd.DataFrame())
 
-        display_ids = filtered_match_ids
+        display_spans = match_spans
         if do_random_sample and total_matches > limit:
             import random
             random.seed(42)
-            display_ids = random.sample(filtered_match_ids, limit)
+            display_spans = random.sample(match_spans, limit)
         else:
-             display_ids = filtered_match_ids[:limit]
+             display_spans = match_spans[:limit]
 
-        display_params = ", ".join([f"({mid})" for mid in display_ids])
+        # Use the variable lengths in the context query
+        # We need a custom VALUES list with [id, len] pairs
+        # Explicitly handle NaN/NULL to prevent SQL syntax errors
+        cleaned_spans = []
+        for sid, slen in display_spans:
+            try:
+                # Ensure we have integers and handle NaN
+                valid_id = int(sid)
+                import math
+                valid_len = int(slen) if not (math.isnan(slen) or slen is None) else 1
+                cleaned_spans.append(f"({valid_id}, {valid_len})")
+            except:
+                continue
+                
+        if not cleaned_spans:
+            con.close()
+            return ([], 0, raw_target_input, literal_freq, [], pd.DataFrame())
+
+        display_values = ", ".join(cleaned_spans)
         
         current_kwic_left = pattern_window if is_pattern_search_active and pattern_window > 0 else kwic_left
         current_kwic_right = pattern_window if is_pattern_search_active and pattern_window > 0 else kwic_right
@@ -213,26 +302,26 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
         all_cols_info = con.execute("PRAGMA table_info(corpus)").fetchall()
         all_cols = [c[1] for c in all_cols_info]
         meta_cols = [c for c in all_cols if c not in standard_cols]
+        # Exclude internal _len and _start columns from metadata display
+        meta_cols = [c for c in meta_cols if not (c.endswith('_len') or c.endswith('_start') or c.endswith('_id'))]
         
         meta_select_part = ""
         if meta_cols:
             meta_select_part = ", " + ", ".join([f"c.{c}" for c in meta_cols])
 
+        # Context query using the specific span length for each match
         context_query = f"""
-        SELECT m.match_id, c.token, c.pos, c.lemma, c.id, c.sent_id{meta_select_part}
-        FROM (VALUES {display_params}) m(match_id)
-        JOIN corpus c ON c.id BETWEEN m.match_id - {current_kwic_left} AND m.match_id + {primary_target_len} + {current_kwic_right} - 1
+        SELECT m.match_id, m.tlen, c.token, c.pos, c.lemma, c.id, c.sent_id{meta_select_part}
+        FROM (VALUES {display_values}) m(match_id, tlen)
+        JOIN corpus c ON c.id BETWEEN m.match_id - {current_kwic_left} AND m.match_id + m.tlen + {current_kwic_right} - 1
         ORDER BY m.match_id, c.id
         """
         
         df_context = con.execute(context_query).fetch_df()
         
-        
         breakdown_data = Counter(matching_tokens_at_node_one)
         breakdown_list = []
         # Need total rows for relative freq.
-        # We did it earlier.
-        
         if xml_where_clause:
             total_rows_val = con.execute(f"SELECT count(*) FROM corpus WHERE 1=1 {xml_where_clause}", xml_params).fetchone()[0]
         else:
@@ -295,6 +384,10 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
             
             try:
                 node_start_idx = c_ids.index(match_id)
+                # Get the dynamic length from the projected tlen column
+                import math
+                tlen_val = group['tlen'].iloc[0]
+                current_match_span_len = int(tlen_val) if not (pd.isna(tlen_val)) else 1
             except ValueError: 
                 continue 
                 
@@ -320,7 +413,8 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
                 t_pos = poss[k]
                 t_lemma = lemmas[k]
                 
-                is_node = (node_start_idx <= k < node_start_idx + primary_target_len)
+                # Check if this token is part of the match span
+                is_node = (node_start_idx <= k < node_start_idx + current_match_span_len)
                 
                 is_coll_match = False
                 if is_pattern_search_active and not is_node:
@@ -364,8 +458,16 @@ def generate_kwic(corpus_db_path, raw_target_input, kwic_left, kwic_right, corpu
             })
 
         return (kwic_rows, total_matches, raw_target_input, literal_freq, sent_ids, breakdown_df)
+        
     except Exception as e:
-        print(f"Error in generate_kwic: {e}")
+        import streamlit as st
+        st.error(f"Search Engine Error: {e}")
+        # Debug info
+        try:
+            st.write("Debug - Display Spans:", display_spans[:5])
+        except: pass
+        import traceback
+        st.code(traceback.format_exc())
         return ([], 0, raw_target_input, 0, [], pd.DataFrame())
 
 def persist_annotations_to_db(db_path: str, annotations: dict):

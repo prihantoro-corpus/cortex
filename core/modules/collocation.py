@@ -33,14 +33,18 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
     Generalized function to run collocation analysis using DuckDB.
     Returns: (stats_df_sorted, freq, primary_target_mwu)
     """
-    if not corpus_db_path:
-        return (pd.DataFrame(), 0, raw_target_input)
-
     try:
         con = duckdb.connect(corpus_db_path, read_only=True)
+        import math
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Collocation Engine Error: {e}")
+        return (pd.DataFrame(), 0, raw_target_input)
         total_tokens = con.execute("SELECT count(*) FROM corpus").fetchone()[0]
         
-        search_terms = raw_target_input.split()
+        # 1. Robust Query Tokenization
+        query_pattern = r'<[^>]+>|[^\s]+'
+        search_terms = re.findall(query_pattern, raw_target_input)
         primary_target_len = len(search_terms)
         
         # Check raw mode (introspect table if metadata not provided)
@@ -57,6 +61,18 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
             except: pass
 
         def parse_term(term):
+            # XML Tag Check (e.g., <PN> or <PN type="human">)
+            xml_tag_match = re.match(r'<(\w+)(?:\s+(.+?))?>', term, re.IGNORECASE)
+            if xml_tag_match:
+                tag_name = xml_tag_match.group(1).lower()
+                attrs_str = xml_tag_match.group(2)
+                attrs = {}
+                if attrs_str:
+                    attr_pattern = r'(\w+)=(["\'])([^"\']*)\2'
+                    for match in re.finditer(attr_pattern, attrs_str):
+                        attrs[match.group(1).lower()] = match.group(3)
+                return {'type': 'xml_tag', 'tag': tag_name, 'attrs': attrs}
+            
             # Same logic as concordance.py
             lemma_match = re.search(r"\[(.*?)\]", term)
             # Find starting index of bracket if any
@@ -89,14 +105,33 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
 
         search_components = [parse_term(term) for term in search_terms]
 
-        query_select = "SELECT c0.id FROM corpus c0"
+        # 2. Build Query with Dynamic Lengths
+        current_offset_exprs = []
         query_joins = ""
+        
+        for k, comp in enumerate(search_components):
+            alias = f"c{k}"
+            
+            if comp['type'] == 'xml_tag':
+                tag_name = comp['tag']
+                current_offset_exprs.append(f"COALESCE({alias}.{tag_name}_len, 1)")
+            else:
+                current_offset_exprs.append("1")
+            
+            if k > 0:
+                prev_alias = f"c{k-1}"
+                prev_offset = current_offset_exprs[k-1]
+                query_joins += f" JOIN corpus {alias} ON {alias}.id = {prev_alias}.id + {prev_offset} "
+        
+        # Calculate TOTAL match length expression
+        total_len_expr = " + ".join(current_offset_exprs)
+        
+        query_select = f"SELECT c0.id, {total_len_expr} as total_len FROM corpus c0"
         query_where = []
         query_params = []
         
         for k, comp in enumerate(search_components):
             alias = f"c{k}"
-            if k > 0: query_joins += f" JOIN corpus {alias} ON {alias}.id = c0.id + {k} "
             
             if comp['type'] == 'token_pos':
                  t_val = comp['token']
@@ -115,6 +150,24 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
                      query_where.append(f"regexp_matches({alias}.pos, ?)")
                      query_params.append('^' + pat_pos + '$')
             
+            elif comp['type'] == 'xml_tag':
+                tag_name = comp['tag']
+                attrs = comp['attrs']
+                
+                # Use the START of the tag instance
+                tag_start_col = f"in_{tag_name}_start"
+                query_where.append(f"{alias}.{tag_start_col} = TRUE")
+                
+                for attr_key, attr_val in attrs.items():
+                    attr_col = f"{tag_name}_{attr_key}"
+                    if '*' in attr_val:
+                        regex_pat = '^' + re.escape(attr_val).replace(r'\*', '.*') + '$'
+                        query_where.append(f"regexp_matches({alias}.{attr_col}, ?)")
+                        query_params.append(regex_pat)
+                    else:
+                        query_where.append(f"{alias}.{attr_col} = ?")
+                        query_params.append(attr_val)
+            
             else:
                 val = comp['val']
                 # Treat *, %, _ as wildcards, and | as alternation
@@ -126,12 +179,8 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
                 
                 if is_wildcard:
                     # Convert glob/SQL wildcards to Regex
-                    # * -> .*
-                    # % -> .*
-                    # _ -> .
                     pat = re.escape(val).replace(r'\*', '.*').replace(r'\%', '.*').replace(r'\_', '.')
                     if '|' in val:
-                        # Restore | for alternation
                         pat = pat.replace(r'\|', '|')
                     
                     regex_pat = '^' + pat + '$'
@@ -173,9 +222,9 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
             CASE WHEN c2.id < m.id THEN 'L' ELSE 'R' END as direction,
             count(*) as obs
         FROM search_matches m
-        JOIN corpus c2 ON c2.id BETWEEN m.id - {coll_window} AND m.id + {primary_target_len} + {coll_window} - 1
+        JOIN corpus c2 ON c2.id BETWEEN m.id - {coll_window} AND m.id + m.total_len + {coll_window} - 1
         WHERE 
-            (c2.id < m.id OR c2.id >= m.id + {primary_target_len}) -- Exclude node
+            (c2.id < m.id OR c2.id >= m.id + m.total_len) -- Exclude node
             AND NOT regexp_matches(c2._token_low, '^[[:punct:]]+$') 
             AND NOT regexp_matches(c2._token_low, '^[0-9]+$') 
         GROUP BY 1, 2, 3, 4
@@ -290,5 +339,8 @@ def generate_collocation_results(corpus_db_path, raw_target_input, coll_window, 
         return (stats_df_sorted, freq, raw_target_input)
 
     except Exception as e:
-        print(f"Collocation Error: {e}")
-        return (pd.DataFrame(), 0, f"Error: {e}")
+        import streamlit as st
+        st.error(f"Collocation Analysis Error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return (pd.DataFrame(), 0, raw_target_input)

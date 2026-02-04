@@ -28,10 +28,19 @@ def parse_query_term(term: str) -> Dict:
         words = [w.strip().lower() for w in or_pattern.group(1).split('|') if w.strip()]
         return {'type': 'word_or', 'values': words}
     
+    # Check for XML Tag: <PN> or <PN type="place">
+    xml_tag_match = re.match(r'<(\w+)(?:\s+(.+?))?>', term, re.IGNORECASE)
+    if xml_tag_match:
+        tag_name = xml_tag_match.group(1).lower()
+        attrs_str = xml_tag_match.group(2)
+        attrs = {}
+        if attrs_str:
+            attr_pattern = r'(\w+)=(["\'])([^"\']*)\2'
+            for match in re.finditer(attr_pattern, attrs_str):
+                attrs[match.group(1).lower()] = match.group(3)
+        return {'type': 'xml_tag', 'tag': tag_name, 'attrs': attrs}
+
     # Check for lemma: [lemma]
-    lemma_match = re.search(r"\[(.*?)\]", term)
-    if lemma_match:
-        return {'type': 'lemma', 'val': lemma_match.group(1).strip().lower()}
     
     # Check for combined Token_POS: light_V*
     if '_' in term and not term.startswith('_'):
@@ -125,6 +134,24 @@ def build_query_where_clause(parsed_term: Dict, alias: str = "c") -> Tuple[str, 
         else:
             where_parts.append(f"{alias}.pos = ?")
             params.append(p_val)
+            
+    elif parsed_term['type'] == 'xml_tag':
+        tag_name = parsed_term['tag']
+        attrs = parsed_term['attrs']
+        
+        # Count only the START of the tag instance
+        tag_start_col = f"in_{tag_name}_start"
+        where_parts.append(f"{alias}.{tag_start_col} = TRUE")
+        
+        for attr_key, attr_val in attrs.items():
+            attr_col = f"{tag_name}_{attr_key}"
+            if '*' in attr_val:
+                regex_pat = '^' + re.escape(attr_val).replace(r'\*', '.*') + '$'
+                where_parts.append(f"regexp_matches({alias}.{attr_col}, ?)")
+                params.append(regex_pat)
+            else:
+                where_parts.append(f"{alias}.{attr_col} = ?")
+                params.append(attr_val)
     
     return (" AND ".join(where_parts), params)
 
@@ -163,8 +190,10 @@ def compare_groups_by_word(
     if xml_params is None:
         xml_params = []
     
-    # Parse query
-    parsed_terms = [parse_query_term(t.strip()) for t in query.split() if t.strip()]
+    # 1. Robust Query Tokenization
+    import re
+    query_pattern = r'<[^>]+>|[^\s]+'
+    parsed_terms = [parse_query_term(t) for t in re.findall(query_pattern, query)]
     
     # For now, support single-term queries only
     if len(parsed_terms) != 1:
@@ -198,13 +227,19 @@ def compare_groups_by_word(
             full_where = " AND ".join(where_parts)
             
             # Extract frequencies
+            # If it's a tag, we want the full content as the 'word'
+            word_expr = "lower(c.token)"
+            if parsed['type'] == 'xml_tag':
+                tag_name = parsed['tag']
+                word_expr = f"(SELECT string_agg(token, ' ') FROM corpus c_sub WHERE c_sub.id BETWEEN c.id AND c.id + COALESCE(c.{tag_name}_len, 1) - 1)"
+            
             freq_query = f"""
                 SELECT 
-                    lower(c.token) as word,
+                    {word_expr} as word,
                     COUNT(*) as freq
                 FROM corpus c
                 WHERE {full_where}
-                GROUP BY lower(c.token)
+                GROUP BY 1
             """
             
             df = con.execute(freq_query, params).fetch_df()
@@ -373,7 +408,9 @@ def preview_query_matches(
     if xml_params is None:
         xml_params = []
     
-    parsed_terms = [parse_query_term(t.strip()) for t in query.split() if t.strip()]
+    import re
+    query_pattern = r'<[^>]+>|[^\s]+'
+    parsed_terms = [parse_query_term(t) for t in re.findall(query_pattern, query)]
     
     if len(parsed_terms) != 1:
         return {'error': 'Multi-word queries not yet supported'}
@@ -395,17 +432,23 @@ def preview_query_matches(
         full_where = " AND ".join(where_parts)
         
         # Get word frequencies
+        word_expr = "lower(c.token)"
+        if parsed['type'] == 'xml_tag':
+            tag_name = parsed['tag']
+            word_expr = f"(SELECT string_agg(token, ' ') FROM corpus c_sub WHERE c_sub.id BETWEEN c.id AND c.id + COALESCE(c.{tag_name}_len, 1) - 1)"
+
         freq_query = f"""
             SELECT 
-                lower(c.token) as word,
+                {word_expr} as word,
                 COUNT(*) as freq
             FROM corpus c
             WHERE {full_where}
-            GROUP BY lower(c.token)
+            GROUP BY 1
             ORDER BY freq DESC
+            LIMIT ?
         """
         
-        df = con.execute(freq_query, params).fetch_df()
+        df = con.execute(freq_query, params + [limit]).fetch_df()
         
         total_words = len(df)
         words_above_threshold = len(df[df['freq'] >= min_freq])
@@ -437,7 +480,12 @@ def get_document_frequency_vector(
     """
     con = duckdb.connect(corpus_db_path, read_only=True)
     try:
-        parsed = parse_query_term(query)
+        import re
+        query_pattern = r'<[^>]+>|[^\s]+'
+        terms = re.findall(query_pattern, query)
+        if not terms: return pd.DataFrame()
+        
+        parsed = parse_query_term(terms[0])
         where_q, params_q = build_query_where_clause(parsed, alias="c")
         
         full_where = f"{where_q}"
