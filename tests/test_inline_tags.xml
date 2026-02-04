@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<corpus name="TestInlineTags" lang="EN">
+    <text id="001">
+        <s n="1"><PN type="human" sex="male">John</PN> works at <PN type="place">New Era Pizzeria</PN>.</s>
+        <s n="2">He likes <FOOD category="italian">pizza</FOOD> and <FOOD category="beverage">coffee</FOOD>.</s>
+    </text>
+</corpus>
