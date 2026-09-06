@@ -13,6 +13,7 @@ from ui_streamlit.components.filters import render_xml_restriction_filters
 from core.preprocessing.xml_parser import apply_xml_restrictions, get_xml_attribute_columns
 from core.modules.word_profiler import load_wordlist, run_word_profiler_analysis, load_wordlist_from_file_object
 from core.io_utils import df_to_excel_bytes
+from core.ai_service import interpret_results_llm
 
 def render_word_profiler_view():
     st.header("Word Profiler")
@@ -186,6 +187,33 @@ def render_word_profiler_view():
                             continue
 
                         st.dataframe(df_results, use_container_width=True)
+
+                        # --- AI Interpretation (High Visibility) ---
+                        st.markdown("#### 🧠 AI Interpretation")
+                        if st.button("🤖 Interpret Results with AI", key=f"btn_wp_ai_{wl_name}", type="primary"):
+                            with st.spinner("AI is analyzing Word Profiler results..."):
+                                description = f"Word Profiler coverage analysis for wordlist '{wl_name}' on corpus '{corpus_name}' (Analysis basis: {basis})."
+                                wp_data_text = f"=== WORD PROFILER VOCABULARY COVERAGE TABLE ===\nWordlist: '{wl_name}'\nCorpus: '{corpus_name}'\nBasis: {basis}\n\n" + df_results.to_string(index=False)
+                                response, error = interpret_results_llm(
+                                    target_word=wl_name,
+                                    analysis_type="Word Profiler Vocabulary Coverage Analysis",
+                                    data_description=description,
+                                    data=wp_data_text,
+                                    ai_provider=get_state('ai_provider'),
+                                    gemini_api_key=get_state('gemini_api_key'),
+                                    ollama_url=get_state('ollama_url'),
+                                    ollama_model=get_state('ai_model')
+                                )
+                                if error:
+                                    st.error(error)
+                                else:
+                                    set_state(f'wp_ai_res_{wl_name}', response)
+
+                        ai_res = get_state(f'wp_ai_res_{wl_name}')
+                        if ai_res:
+                            st.markdown(ai_res)
+
+                        st.markdown("---")
 
                         # --- Visualization ---
                         st.markdown("#### 📊 Visualization")

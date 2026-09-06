@@ -94,9 +94,20 @@ def interpret_results_llm(target_word, analysis_type, data_description, data,
     {data_text}
     
     Instructions:
-    1. Base your analysis STRICTLY on the provided data.
-    2. Do NOT treat this as a hypothetical example or add disclaimers about fictional data. The data is real.
-    3. Output a concise, scholarly markdown summary of semantic patterns and usage.
+    1. Base your analysis STRICTLY on the actual provided data results.
+    2. CRITICAL RULES FOR READING NUMERICAL & FREQUENCY DATA:
+       - The actual total number of times a term/word appears in the corpus is given ONLY by "Absolute Frequency", "Total Occurrences", "Frequency", or "Counts" (e.g., 1,246 occurrences).
+       - "Zipf Band" (e.g. 1, 2, 3, 4, 5, 6) is a LOGARITHMIC FREQUENCY CLASSIFICATION BAND (Zipf's Law scale from 1=rare to 6=extremely frequent), NOT an occurrence count! NEVER say a term appears "X times" using the Zipf Band number.
+       - "Zipf Score" (e.g. 6.32) is a logarithmic score metric, NOT an occurrence count.
+       - "Relative Frequency" / "PMW" is occurrences per million words, NOT the raw count.
+       - "Sample Lines Shown" or KWIC lines rendered in a preview are a small subset sample, NOT the total occurrence count in the corpus.
+       - NEVER confuse Zipf Band, Zipf Score, Relative Frequency, or Sample Line counts with Absolute Frequency / Total Occurrences.
+       - If Absolute Frequency is 1246 and Zipf Band is 6, state: "The term appears 1,246 times in the corpus (Zipf Band 6, Relative Frequency ... PMW)."
+       - Cite numbers EXACTLY as given under their specific column headers.
+    3. Do NOT hallucinate, extrapolate, speculate, or invent any words, frequencies, metrics, categories, or patterns not explicitly present in the provided data.
+    4. Do NOT treat this as a hypothetical example or add disclaimers about fictional data. The data is real empirical results from the corpus.
+    5. Rely ONLY on the actual results supplied above. If details or specific words are missing from the data, do NOT guess or infer them.
+    6. Output a concise, scholarly markdown summary of empirical linguistic patterns and coverage grounded strictly in the provided data.
     """
     
     try:
@@ -189,9 +200,20 @@ def interpret_results_gemini(target_word, analysis_type, data_description, data,
     {data_text}
     
     Instructions:
-    1. Base your analysis STRICTLY on the provided data.
-    2. Do NOT treat this as a hypothetical example or add disclaimers about fictional data. The data is real.
-    3. Output a concise, scholarly markdown summary of semantic patterns and usage.
+    1. Base your analysis STRICTLY on the actual provided data results.
+    2. CRITICAL RULES FOR READING NUMERICAL & FREQUENCY DATA:
+       - The actual total number of times a term/word appears in the corpus is given ONLY by "Absolute Frequency", "Total Occurrences", "Frequency", or "Counts" (e.g., 1,246 occurrences).
+       - "Zipf Band" (e.g. 1, 2, 3, 4, 5, 6) is a LOGARITHMIC FREQUENCY CLASSIFICATION BAND (Zipf's Law scale from 1=rare to 6=extremely frequent), NOT an occurrence count! NEVER say a term appears "X times" using the Zipf Band number.
+       - "Zipf Score" (e.g. 6.32) is a logarithmic score metric, NOT an occurrence count.
+       - "Relative Frequency" / "PMW" is occurrences per million words, NOT the raw count.
+       - "Sample Lines Shown" or KWIC lines rendered in a preview are a small subset sample, NOT the total occurrence count in the corpus.
+       - NEVER confuse Zipf Band, Zipf Score, Relative Frequency, or Sample Line counts with Absolute Frequency / Total Occurrences.
+       - If Absolute Frequency is 1246 and Zipf Band is 6, state: "The term appears 1,246 times in the corpus (Zipf Band 6, Relative Frequency ... PMW)."
+       - Cite numbers EXACTLY as given under their specific column headers.
+    3. Do NOT hallucinate, extrapolate, speculate, or invent any words, frequencies, metrics, categories, or patterns not explicitly present in the provided data.
+    4. Do NOT treat this as a hypothetical example or add disclaimers about fictional data. The data is real empirical results from the corpus.
+    5. Rely ONLY on the actual results supplied above. If details or specific words are missing from the data, do NOT guess or infer them.
+    6. Output a concise, scholarly markdown summary of empirical linguistic patterns and coverage grounded strictly in the provided data.
     """
 
     payload = {

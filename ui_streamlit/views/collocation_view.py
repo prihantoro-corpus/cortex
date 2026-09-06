@@ -915,11 +915,12 @@ def render_collocation_results_column(results, key_suffix=""):
          st.markdown("---")
          if st.button("Interpret with AI", key=f"btn_coll_ai_{key_suffix}"):
               with st.spinner("Analyzing..."):
-                   top_data = df.head(10).to_string(index=False)
+                   header_str = f"Target Node Word: '{node}' (Total Collocates Analyzed: {len(df)})\nCollocation Statistical Measure: {stat_measure}\n\n=== TOP COLLOCATES TABLE (Explicit Counts & Association Scores) ===\n"
+                   top_data = header_str + df.head(15).to_string(index=False)
                    resp, err = interpret_results_llm(
                         target_word=node,
                         analysis_type="Collocation Analysis",
-                        data_description=f"Collocates for '{node}' (±{win}).",
+                        data_description=f"Collocates for '{node}' (Window: ±{win}, Metric: {stat_measure}).",
                         data=top_data,
                         ai_provider=get_state('ai_provider'),
                         gemini_api_key=get_state('gemini_api_key'),

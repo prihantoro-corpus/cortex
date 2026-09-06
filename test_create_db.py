@@ -6,7 +6,7 @@ con = duckdb.connect(r'C:\Users\priha\Documents\cortex\dummy.duckdb')
 
 # Create corpus table
 con.execute("""
-    CREATE TABLE corpus (
+    CREATE TABLE IF NOT EXISTS corpus (
         id INTEGER,
         _token_low VARCHAR,
         pos VARCHAR,

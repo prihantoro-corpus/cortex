@@ -281,6 +281,9 @@ GUIDELINES = {
           * **By Filename**: Compare coverage levels between different files.
           * **By Metadata**: Segment and compare coverage based on document attributes (e.g. publication year, genre).
         * **Filtering**: Restrict analysis to specific document cohorts using XML filters.
+
+        #### 3. AI Interpretation
+        * Click the **🤖 Interpret Results with AI** button under any wordlist results box to generate a scholarly markdown interpretation of vocabulary coverage and distribution grounded strictly in your empirical data.
     """,
     "Keyword": """
         ### 📖 Keyword Analysis Guide

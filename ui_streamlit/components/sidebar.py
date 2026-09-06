@@ -162,6 +162,13 @@ def render_sidebar():
                 return get_available_models(url)
             
             available_models = get_cached_models(o_url)
+            
+            col_m1, col_m2 = st.columns([3, 1])
+            with col_m2:
+                if st.button("🔄", key="btn_refresh_ollama_models", help="Refresh installed Ollama models list"):
+                    st.cache_data.clear()
+                    st.rerun()
+
             current_model = get_state('ai_model')
             if available_models:
                 if current_model not in available_models: available_models.append(current_model)

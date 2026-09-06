@@ -1599,14 +1599,28 @@ def render_concordance_column(results, search_term, key_suffix=""):
      st.markdown("---")
      if st.button("Interpret with AI", key=f"btn_kwic_ai_{key_suffix}"):
           with st.spinner("Analyzing patterns..."):
-               sample_text = "\n".join([f"{r['Left']} [{r['Node']}] {r['Right']}" for r in kwic_rows[:10]])
-               data_desc = f"KWIC lines for '{search_term}' in '{results['name']}'."
+               sample_lines_text = "\n".join([f"{r['Left']} [{r['Node']}] {r['Right']}" for r in kwic_rows[:15]])
+               breakdown_str = breakdown.head(10).to_string(index=False) if (breakdown is not None and not breakdown.empty) else "None"
                
+               data_payload = f"""=== QUANTITATIVE FREQUENCY METRICS ===
+Target Keyword: '{search_term}'
+Corpus Dataset: '{name}'
+Absolute Frequency (Total Occurrences in Corpus): {total:,} occurrences
+Relative Frequency: {rel_freq:.2f} per million words (PMW)
+Total Corpus Tokens: {total_tokens:,}
+Sample Lines Provided Below: {len(kwic_rows[:15])} sample preview lines (out of {total:,} total occurrences in corpus)
+
+=== TOKEN BREAKDOWN STATS (Top Variations) ===
+{breakdown_str}
+
+=== SAMPLE KWIC CONCORDANCE LINES (For Contextual Analysis) ===
+{sample_lines_text}
+"""
                resp, err = interpret_results_llm(
                    target_word=search_term,
                    analysis_type="Concordance Analysis",
-                   data_description=f"Snapshot for '{search_term}' in '{name}'.",
-                   data=sample_text,
+                   data_description=f"Snapshot and quantitative frequency summary for '{search_term}' in '{name}'.",
+                   data=data_payload,
                    ai_provider=get_state('ai_provider'),
                    gemini_api_key=get_state('gemini_api_key'),
                    ollama_url=get_state('ollama_url'),

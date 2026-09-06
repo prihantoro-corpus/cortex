@@ -466,8 +466,9 @@ def render_ngram_results_column(df, n_val, corpus_name, key_suffix=""):
         
         if st.button("Interpret with AI", key=f"btn_ngram_ai_{key_suffix}"):
              with st.spinner("Analyzing..."):
-                  top_n = df.head(10).to_string(index=False)
-                  data_desc = f"Top {n_val_actual}-grams from corpus '{corpus_name}'."
+                  header_str = f"Corpus: '{corpus_name}' (Total N-Grams Analyzed: {len(df)})\n=== TOP {n_val_actual}-GRAMS FREQUENCY TABLE (Explicit Occurrences Count) ===\n"
+                  top_n = header_str + df.head(15).to_string(index=False)
+                  data_desc = f"Top {n_val_actual}-grams frequency distribution from corpus '{corpus_name}'."
                   
                   resp, err = interpret_results_llm(
                        target_word=f"Top {n_val_actual}-Grams",
