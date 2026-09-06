@@ -44,31 +44,26 @@ def render_word_profiler_view():
                 con = duckdb.connect(corpus_path, read_only=True)
                 attr_cols = get_xml_attribute_columns(con)
                 if attr_cols:
-                    selected_cols = st.multiselect("Select Metadata Attribute(s)", attr_cols, default=[attr_cols[0]] if attr_cols else [], key="wp_metadata_cols")
+                    selected_col = st.radio("Select Metadata Attribute", options=attr_cols, horizontal=True, key="wp_metadata_col_radio")
+                    metadata_col = selected_col
                     
-                    # For each selected column, show available values with checklist (defaulting to all checked)
-                    metadata_col = []
-                    filtered_xml_filters = {}
-                    
-                    for col in selected_cols:
-                        st.markdown(f"**Filter values for: {col}**")
-                        # Fetch distinct values
-                        try:
-                            res = con.execute(f'SELECT DISTINCT "{col}" FROM corpus WHERE "{col}" IS NOT NULL ORDER BY "{col}"').fetchall()
-                            unique_vals = [str(r[0]).strip() for r in res if str(r[0]).strip() and str(r[0]).lower() != 'nan']
-                        except:
-                            unique_vals = []
-                            
-                        if unique_vals:
-                            # Use streamlit multiselect defaulting to all values
-                            chosen_vals = st.multiselect(f"Select values for {col}", options=unique_vals, default=unique_vals, key=f"wp_filter_vals_{col}")
-                            if chosen_vals:
-                                filtered_xml_filters[col] = {'type': 'list', 'values': chosen_vals}
-                                metadata_col.append(col)
+                    # Fetch distinct values for the selected metadata attribute
+                    try:
+                        res = con.execute(f'SELECT DISTINCT "{selected_col}" FROM corpus WHERE "{selected_col}" IS NOT NULL ORDER BY "{selected_col}"').fetchall()
+                        unique_vals = [str(r[0]).strip() for r in res if str(r[0]).strip() and str(r[0]).lower() != 'nan']
+                    except Exception:
+                        unique_vals = []
+                        
+                    if unique_vals:
+                        chosen_vals = st.multiselect(f"Filter values for '{selected_col}'", options=unique_vals, default=unique_vals, key=f"wp_filter_vals_{selected_col}")
+                        if chosen_vals and len(chosen_vals) < len(unique_vals):
+                            st.session_state['wp_metadata_value_filters'] = {
+                                selected_col: {'type': 'list', 'values': chosen_vals}
+                            }
                         else:
-                            metadata_col.append(col)
-                            
-                    st.session_state['wp_metadata_value_filters'] = filtered_xml_filters
+                            st.session_state['wp_metadata_value_filters'] = {}
+                    else:
+                        st.session_state['wp_metadata_value_filters'] = {}
                 else:
                     st.warning("No metadata attributes found in this corpus.")
                     metadata_col = None
