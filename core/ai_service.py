@@ -65,6 +65,8 @@ def test_openrouter_connection(api_key, model=None):
                 return True, f"Successfully connected! OpenRouter model '{openrouter_model}' is ready."
             return False, "Unexpected response format from OpenRouter."
         else:
+            if response.status_code == 429:
+                return False, "Rate limit / model busy (Status 429). The model is temporarily rate limited or overloaded. Please wait 30 seconds or try 'google/gemini-2.5-flash'."
             try:
                 res_json = response.json()
                 if 'error' in res_json:
