@@ -1728,7 +1728,10 @@ def render_online_builder_ui():
             if not tag_val.strip():
                 st.error("Please enter a tag keyword.")
             else:
-                from core.modules.detik_scraper import build_detik_corpus_xml
+                import importlib
+                import core.modules.detik_scraper as detik_scraper_mod
+                importlib.reload(detik_scraper_mod)
+                build_detik_corpus_xml = detik_scraper_mod.build_detik_corpus_xml
                 progress_bar = st.progress(0)
                 status = st.empty()
                 def up(m, p):

@@ -194,7 +194,7 @@ def scrape_detik_article(url, headers=None):
         print(f"[ERROR] Failed to scrape article {url}: {e}")
         return None
 
-def build_detik_corpus_xml(tag, target_count=100, start_date=None, end_date=None, progress_callback=None):
+def build_detik_corpus_xml(tag, target_count=100, start_date=None, end_date=None, progress_callback=None, **kwargs):
     """
     Crawls Detik tag, scrapes articles, applies optional date filter, and packages exact target_count valid articles into an XML string.
     Returns: (xml_content, df_summary, total_articles)
