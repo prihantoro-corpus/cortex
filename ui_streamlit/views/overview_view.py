@@ -1734,8 +1734,7 @@ def render_online_builder_ui():
                     set_state('last_detik_xml_content', xml_content)
                     set_state('last_detik_df_summary', df_summary)
                     set_state('last_detik_tag', tag_val)
-                    set_state('downloaded_online_files', [{'filename': f"Detik_{tag_val}.xml", 'content': xml_content}])
-                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'! Configure language and tagger below to load into CORTEX.")
+                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'!")
                     st.rerun()
                 else:
                     st.error(f"Could not retrieve articles for tag '{tag_val}'. Please check tag spelling or try another keyword.")
@@ -1756,6 +1755,134 @@ def render_online_builder_ui():
                 key="dl_detik_xml",
                 use_container_width=True
             )
+            
+            st.markdown("---")
+            st.subheader("⚙️ Corpus Processing & Tagging Configuration")
+            st.caption("Select your target language, corpus format, and tagger engine before loading the scraped articles into CORTEX.")
+            
+            from core.config import STANZA_LANG_MAP
+            lang_options = list(STANZA_LANG_MAP.keys()) + ["OTHER"]
+            default_detik_lang_idx = lang_options.index("Indonesian") if "Indonesian" in lang_options else 0
+            
+            l_col, f_col = st.columns(2)
+            with l_col:
+                st.markdown("**Target Language**")
+                detik_lang_label = st.radio(
+                    "Detik Language Select",
+                    lang_options,
+                    index=default_detik_lang_idx,
+                    horizontal=True,
+                    key="detik_language_select",
+                    label_visibility="collapsed"
+                )
+            with f_col:
+                st.markdown("**Corpus Format**")
+                detik_fmt = st.radio(
+                    "Detik Format Select",
+                    ["XML (Tagged)", "Raw (Natural text)", "Tagged (Vertical)"],
+                    index=0,
+                    horizontal=True,
+                    key="detik_format_select",
+                    label_visibility="collapsed"
+                )
+                
+            detik_tagger_tool = st.radio(
+                "**Tagging Tool**",
+                ["Default (TreeTagger/Stanza/Spacy)", "Custom Tagger"],
+                index=0,
+                horizontal=True,
+                key="detik_tagger_tool_select",
+                help="Select default priority tagger (TreeTagger -> Stanza -> SpaCy) or use custom data-driven tagger."
+            )
+            
+            detik_custom_config = None
+            if detik_tagger_tool == "Custom Tagger":
+                st.info("🔧 **Configure Custom Tagger**")
+                detik_custom_mode = st.radio(
+                    "Model Reusability Mode",
+                    ["Train New Model", "Load Existing Model"],
+                    index=0,
+                    horizontal=True,
+                    key="detik_custom_tagger_mode"
+                )
+                if detik_custom_mode == "Train New Model":
+                    c_col1, c_col2 = st.columns(2)
+                    with c_col1:
+                        c_corp_file = st.file_uploader("Upload Pre-annotated Corpus (Mandatory)", type=["txt", "csv"], key="detik_custom_corp")
+                    with c_col2:
+                        c_lex_file = st.file_uploader("Upload Pre-annotated Lexicon (Optional)", type=["txt", "csv"], key="detik_custom_lex")
+                    p1, p2 = st.columns(2)
+                    with p1:
+                        c_guesser = st.text_input("Guesser Tag", value="NN", key="detik_c_guesser")
+                        c_algo = st.selectbox("Tagging Algorithm", ["Averaged Perceptron", "Naive Bayes", "Hidden Markov Model (TnT Style)"], index=0, key="detik_c_algo")
+                    with p2:
+                        c_window = st.slider("Context Window Size", 1, 3, 2, key="detik_c_win")
+                        c_thresh = st.slider("Probabilistic Threshold", 0.0, 1.0, 0.1, step=0.05, key="detik_c_thresh")
+                    
+                    if c_corp_file:
+                        try:
+                            detik_custom_config = {
+                                'corpus_content': c_corp_file.read().decode('utf-8', errors='ignore'),
+                                'lexicon_content': c_lex_file.read().decode('utf-8', errors='ignore') if c_lex_file else None,
+                                'guesser_tag': c_guesser,
+                                'algorithm': c_algo,
+                                'context_window': c_window,
+                                'prob_threshold': c_thresh
+                            }
+                        except Exception as e:
+                            st.error(f"Error reading custom files: {e}")
+                else:
+                    up_model = st.file_uploader("Upload Trained Model File (.json or .pkl)", type=["json", "pkl"], key="detik_up_model")
+                    if up_model:
+                        try:
+                            fn = up_model.name.lower()
+                            if fn.endswith('.json'):
+                                import json
+                                from core.preprocessing.custom_tagger import CustomDataDrivenTagger
+                                data = json.loads(up_model.read().decode('utf-8'))
+                                detik_custom_config = {'pre_trained_tagger': CustomDataDrivenTagger.from_json(data)}
+                            else:
+                                import pickle
+                                detik_custom_config = {'pre_trained_tagger': pickle.loads(up_model.read())}
+                            st.success("✅ Custom tagger model loaded!")
+                        except Exception as e:
+                            st.error(f"Error loading model: {e}")
+
+            if st.button("📥 Process & Load Detik Corpus into CORTEX", type="primary", key="btn_process_load_detik", use_container_width=True):
+                if detik_tagger_tool == "Custom Tagger" and not detik_custom_config:
+                    st.error("Please configure or upload a custom tagger model first.")
+                else:
+                    detik_lang_code = "OTHER" if detik_lang_label == "OTHER" else STANZA_LANG_MAP[detik_lang_label]
+                    import io
+                    from core.preprocessing import corpus_loader
+                    xml_filename = f"Detik_{tag_used}.xml"
+                    f_obj = io.BytesIO(xml_content.encode('utf-8'))
+                    f_obj.name = xml_filename
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    def up_detik_proc(val, text):
+                        progress_bar.progress(val)
+                        status_text.caption(text)
+
+                    with st.spinner(f"Processing Detik corpus with language '{detik_lang_label}' and format '{detik_fmt}'..."):
+                        res = corpus_loader.load_monolingual_corpus_files(
+                            [f_obj],
+                            explicit_lang_code=detik_lang_code,
+                            selected_format=detik_fmt,
+                            progress_callback=up_detik_proc,
+                            custom_tagger_config=detik_custom_config
+                        )
+                    if res.get('error'):
+                        st.error(res['error'])
+                    else:
+                        set_state('current_corpus_path', res['db_path'])
+                        set_state('corpus_stats', res['stats'])
+                        set_state('current_corpus_name', f"Detik_{tag_used}")
+                        set_state('xml_structure_data', res.get('structure'))
+                        set_state('target_lang', detik_lang_label)
+                        st.success(f"🎉 'Detik_{tag_used}' processed and loaded as current active corpus!")
+                        st.rerun()
 
     elif mode == "YouTube":
         st.info("💡 **Experimental:** Max 100,000 words limit for this session.")
