@@ -5,6 +5,7 @@ import time
 import os
 import tempfile
 import pandas as pd
+import html
 
 def clean_detik_url(url):
     """
@@ -167,8 +168,9 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
 
     articles_data = []
     xml_parts = []
+    escaped_tag = html.escape(str(tag), quote=True)
     xml_parts.append(f'<?xml version="1.0" encoding="UTF-8"?>')
-    xml_parts.append(f'<corpus tag="{tag}" source="Detik.com">')
+    xml_parts.append(f'<corpus tag="{escaped_tag}" source="Detik.com">')
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -182,16 +184,23 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
             
         art = scrape_detik_article(link, headers=headers)
         if art and art['paragraphs']:
-            paragraphs_xml = "\n".join([f"    <p>{p}</p>" for p in art['paragraphs']])
-            art_xml = f"""  <article id="detik_{idx+1}" url="{art['url']}">
-    <subtitle>{art['subtitle']}</subtitle>
-    <title>{art['title']}</title>
-    <author>{art['author']}</author>
-    <date>{art['date']}</date>
+            escaped_url = html.escape(art['url'], quote=True)
+            escaped_title = html.escape(art['title'], quote=True)
+            escaped_subtitle = html.escape(art['subtitle'], quote=True)
+            escaped_author = html.escape(art['author'], quote=True)
+            escaped_date = html.escape(art['date'], quote=True)
+
+            paragraphs_xml = "\n".join([f"    <p>{html.escape(p)}</p>" for p in art['paragraphs']])
+            
+            art_xml = f"""  <detik id="detik_{idx+1}" article="{escaped_title}" title="{escaped_title}" author="{escaped_author}" date="{escaped_date}" subtitle="{escaped_subtitle}" url="{escaped_url}">
+    <subtitle>{html.escape(art['subtitle'])}</subtitle>
+    <title>{html.escape(art['title'])}</title>
+    <author>{html.escape(art['author'])}</author>
+    <date>{html.escape(art['date'])}</date>
     <text>
 {paragraphs_xml}
     </text>
-  </article>"""
+  </detik>"""
             xml_parts.append(art_xml)
             
             full_text = ""
