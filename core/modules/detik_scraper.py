@@ -7,6 +7,43 @@ import tempfile
 import pandas as pd
 import html
 
+import datetime
+
+MONTH_MAP = {
+    'jan': 1, 'januari': 1,
+    'feb': 2, 'februari': 2,
+    'mar': 3, 'maret': 3,
+    'apr': 4, 'april': 4,
+    'mei': 5,
+    'jun': 6, 'juni': 6,
+    'jul': 7, 'juli': 7,
+    'agu': 8, 'agustus': 8, 'agt': 8,
+    'sep': 9, 'september': 9,
+    'okt': 10, 'oktober': 10,
+    'nov': 11, 'november': 11,
+    'des': 12, 'desember': 12
+}
+
+def parse_detik_date(date_str):
+    """
+    Parses a Detik date string like 'Senin, 07 Sep 2026 08:50 WIB' into a datetime.date object.
+    Returns datetime.date or None if unparseable.
+    """
+    if not date_str or not isinstance(date_str, str):
+        return None
+    match = re.search(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', date_str)
+    if match:
+        day = int(match.group(1))
+        m_str = match.group(2).lower()
+        year = int(match.group(3))
+        month = MONTH_MAP.get(m_str[:3], MONTH_MAP.get(m_str))
+        if month:
+            try:
+                return datetime.date(year, month, day)
+            except Exception:
+                return None
+    return None
+
 def clean_detik_url(url):
     """
     Cleans an article URL and appends ?single=1 or &single=1 to load the full article on one page.
@@ -157,12 +194,22 @@ def scrape_detik_article(url, headers=None):
         print(f"[ERROR] Failed to scrape article {url}: {e}")
         return None
 
-def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
+def build_detik_corpus_xml(tag, target_count=100, start_date=None, end_date=None, progress_callback=None):
     """
-    Crawls Detik tag, scrapes articles, and packages them into an annotated XML string.
+    Crawls Detik tag, scrapes articles, applies optional date filter, and packages exact target_count valid articles into an XML string.
     Returns: (xml_content, df_summary, total_articles)
     """
-    links = discover_detik_tag_links(tag, target_count=target_count, progress_callback=progress_callback)
+    if isinstance(target_count, str) and 'all' in target_count.lower():
+        max_articles = 500
+    else:
+        try:
+            max_articles = int(target_count)
+        except Exception:
+            max_articles = 100
+
+    # Discover extra candidate links (up to 3x or 500) to account for invalid articles or date filter skips
+    candidate_target = min(500, max_articles * 3) if max_articles < 500 else 500
+    links = discover_detik_tag_links(tag, target_count=candidate_target, progress_callback=progress_callback)
     if not links:
         return None, pd.DataFrame(), 0
 
@@ -176,14 +223,27 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 
-    total_links = len(links)
+    total_candidates = len(links)
     for idx, link in enumerate(links):
+        if len(articles_data) >= max_articles:
+            break
+
         if progress_callback:
-            pct = 0.3 + (0.65 * ((idx + 1) / total_links))
-            progress_callback(f"Scraping article {idx + 1}/{total_links}: {link[:60]}...", pct)
+            pct = 0.3 + (0.65 * ((idx + 1) / total_candidates))
+            progress_callback(f"Scraping article {len(articles_data) + 1}/{max_articles}: {link[:50]}...", pct)
             
         art = scrape_detik_article(link, headers=headers)
         if art and art['paragraphs']:
+            # Apply Date Range Filter if requested
+            if start_date or end_date:
+                parsed_dt = parse_detik_date(art['date'])
+                if parsed_dt:
+                    if start_date and parsed_dt < start_date:
+                        continue
+                    if end_date and parsed_dt > end_date:
+                        continue
+
+            curr_idx = len(articles_data) + 1
             escaped_url = html.escape(art['url'], quote=True)
             escaped_title = html.escape(art['title'], quote=True)
             escaped_subtitle = html.escape(art['subtitle'], quote=True)
@@ -192,7 +252,7 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
 
             paragraphs_xml = "\n".join([f"    <p>{html.escape(p)}</p>" for p in art['paragraphs']])
             
-            art_xml = f"""  <detik id="detik_{idx+1}" article="{escaped_title}" title="{escaped_title}" author="{escaped_author}" date="{escaped_date}" subtitle="{escaped_subtitle}" url="{escaped_url}">
+            art_xml = f"""  <detik id="detik_{curr_idx}" article="{escaped_title}" title="{escaped_title}" author="{escaped_author}" date="{escaped_date}" subtitle="{escaped_subtitle}" url="{escaped_url}">
     <subtitle>{html.escape(art['subtitle'])}</subtitle>
     <title>{html.escape(art['title'])}</title>
     <author>{html.escape(art['author'])}</author>
@@ -210,7 +270,7 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
             words_count = len(full_text.split())
 
             articles_data.append({
-                'ID': f"detik_{idx+1}",
+                'ID': f"detik_{curr_idx}",
                 'Title': art['title'],
                 'Subtitle': art['subtitle'],
                 'Author': art['author'],
@@ -229,3 +289,4 @@ def build_detik_corpus_xml(tag, target_count=100, progress_callback=None):
         progress_callback("Detik.com corpus build complete!", 1.0)
 
     return full_xml, df_summary, len(articles_data)
+

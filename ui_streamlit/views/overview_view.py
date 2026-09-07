@@ -1712,6 +1712,16 @@ def render_online_builder_ui():
         with col2:
             target_count_opt = st.radio("Target Article Count", [10, 50, 100, 150, 200, 300, "All (Max 500)"], index=0, horizontal=True, key="detik_count_radio")
             
+        import datetime
+        enable_date_filter = st.checkbox("📅 Filter by Date Range", value=False, key="detik_date_filter_check", help="Restrict news articles to a specific publication date range")
+        start_date, end_date = None, None
+        if enable_date_filter:
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                start_date = st.date_input("Start Date", value=datetime.date.today() - datetime.timedelta(days=30), key="detik_start_date")
+            with d_col2:
+                end_date = st.date_input("End Date", value=datetime.date.today(), key="detik_end_date")
+
         st.warning("⚠️ **Note**: Scraping larger article counts takes more processing time depending on network speed. Results are retrieved dynamically from live news feeds.")
 
         if st.button("🔍 Step 1: Scrape Detik.com News Articles", type="primary", key="btn_scrape_detik"):
@@ -1729,6 +1739,8 @@ def render_online_builder_ui():
                     xml_content, df_summary, total_scraped = build_detik_corpus_xml(
                         tag=tag_val, 
                         target_count=target_count_opt, 
+                        start_date=start_date,
+                        end_date=end_date,
                         progress_callback=up
                     )
                     
