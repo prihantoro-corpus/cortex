@@ -876,12 +876,21 @@ def render_collocation_results_column(results, key_suffix=""):
          xml_params = results.get('xml_params', [])
 
          with st.expander("Show Examples", expanded=False):
+              num_examples_opt = st.radio(
+                  "**Examples per Collocate:**",
+                  [1, 2, 3, 4, 5, "All"],
+                  index=0,
+                  horizontal=True,
+                  key=f"coll_examples_per_collocate_radio_{key_suffix}",
+                  help="Select how many sentence examples to fetch for each collocate in the table."
+              )
+              
+              limit_val = 999999 if num_examples_opt == "All" else int(num_examples_opt)
+
               kwic_table_data = []
               # Get parallel data if needed
               is_parallel = get_state('parallel_mode', False)
               target_map = get_state('target_sent_map', {})
-              show_all_in_conc = get_state('coll_show_all_in_conc', False)
-              limit_val = 999999 if show_all_in_conc else 1
               
               for i, coll in enumerate(df['Collocate'].tolist()): # All collocates in the table
                    with st.spinner(f"Fetching example(s) for {coll}..."):
@@ -900,8 +909,9 @@ def render_collocation_results_column(results, key_suffix=""):
                         )
                         if c_kwic:
                             for idx, kwic_item in enumerate(c_kwic):
+                                col_label = f"{i+1}. {coll}" if limit_val == 1 else f"{i+1}. {coll} ({idx+1})"
                                 row_data = {
-                                    'Collocate': f"{i+1}. {coll}" if not show_all_in_conc else f"{i+1}. {coll} ({idx+1})",
+                                    'Collocate': col_label,
                                     'Source Corpus': corpus_name,
                                     'Left Context': kwic_item['Left'],
                                     'Node': kwic_item['Node'],
