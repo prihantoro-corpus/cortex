@@ -1734,7 +1734,9 @@ def render_online_builder_ui():
                     set_state('last_detik_xml_content', xml_content)
                     set_state('last_detik_df_summary', df_summary)
                     set_state('last_detik_tag', tag_val)
-                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'!")
+                    set_state('downloaded_online_files', [{'filename': f"Detik_{tag_val}.xml", 'content': xml_content}])
+                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'! Configure language and tagger below to load into CORTEX.")
+                    st.rerun()
                 else:
                     st.error(f"Could not retrieve articles for tag '{tag_val}'. Please check tag spelling or try another keyword.")
 
@@ -1746,34 +1748,14 @@ def render_online_builder_ui():
             st.markdown(f"#### 📊 Scraped Articles Summary ({len(df_summary)} articles)")
             st.dataframe(df_summary, use_container_width=True, hide_index=True)
             
-            c_act1, c_act2 = st.columns(2)
-            with c_act1:
-                if st.button("📥 Load as Current Active Corpus in CORTEX", type="primary", key="btn_load_detik_active"):
-                    import io
-                    from core.preprocessing import corpus_loader
-                    xml_filename = f"Detik_{tag_used}.xml"
-                    f_obj = io.BytesIO(xml_content.encode('utf-8'))
-                    f_obj.name = xml_filename
-                    with st.spinner("Processing & Tagging Corpus with Stanza..."):
-                        res = corpus_loader.load_monolingual_corpus_files([f_obj], explicit_lang_code='ID', selected_format='XML (Tagged)')
-                    if res.get('error'):
-                        st.error(res['error'])
-                    else:
-                        set_state('current_corpus_path', res['db_path'])
-                        set_state('corpus_stats', res['stats'])
-                        set_state('current_corpus_name', f"Detik_{tag_used}")
-                        set_state('xml_structure_data', res.get('structure'))
-                        set_state('target_lang', 'Indonesian')
-                        st.success(f"🎉 'Detik_{tag_used}' loaded as current active corpus!")
-                        st.rerun()
-            with c_act2:
-                st.download_button(
-                    label=f"💾 Download Detik Corpus (XML)",
-                    data=xml_content.encode('utf-8'),
-                    file_name=f"Detik_{tag_used}_corpus.xml",
-                    mime="application/xml",
-                    key="dl_detik_xml"
-                )
+            st.download_button(
+                label=f"💾 Download Detik Corpus (XML)",
+                data=xml_content.encode('utf-8'),
+                file_name=f"Detik_{tag_used}_corpus.xml",
+                mime="application/xml",
+                key="dl_detik_xml",
+                use_container_width=True
+            )
 
     elif mode == "YouTube":
         st.info("💡 **Experimental:** Max 100,000 words limit for this session.")
@@ -2059,38 +2041,124 @@ def render_online_builder_ui():
     downloaded_files = get_state('downloaded_online_files')
     if downloaded_files:
         st.markdown("---")
-        st.subheader("⚙️ Process Downloaded Corpus")
-        st.success(f"{len(downloaded_files)} components ready for processing.")
+        st.subheader("⚙️ Process & Index Downloaded Corpus")
+        st.success(f"{len(downloaded_files)} component(s) ready for processing.")
         
-        # Language Selection
-        st.markdown("**Language**")
         from core.config import STANZA_LANG_MAP
         lang_options = list(STANZA_LANG_MAP.keys()) + ["OTHER"]
-        selected_lang_label = st.radio(
-            "Language Select", 
-            lang_options, 
-            index=0,
-            horizontal=True,
-            key="online_language_select",
-            label_visibility="collapsed"
-        )
         
-        # Tagging Tool
+        # Smart default for language (e.g. Indonesian if Detik articles)
+        default_lang_idx = 0
+        if any(isinstance(f, dict) and 'Detik' in f.get('filename', '') for f in downloaded_files):
+            if "Indonesian" in lang_options:
+                default_lang_idx = lang_options.index("Indonesian")
+
+        # Smart default for format (e.g. XML (Tagged) if .xml file)
+        has_xml_file = any(isinstance(f, dict) and f.get('filename', '').endswith('.xml') for f in downloaded_files)
+        default_fmt_idx = 0 if has_xml_file else 1
+
+        lang_col, fmt_col = st.columns(2)
+        with lang_col:
+            st.markdown("**Target Language**")
+            selected_lang_label = st.radio(
+                "Language Select", 
+                lang_options, 
+                index=default_lang_idx,
+                horizontal=True,
+                key="online_language_select",
+                label_visibility="collapsed"
+            )
+        with fmt_col:
+            st.markdown("**Corpus Format**")
+            selected_fmt = st.radio(
+                "Format Select",
+                ["XML (Tagged)", "Raw (Natural text)", "Tagged (Vertical)"],
+                index=default_fmt_idx,
+                horizontal=True,
+                key="online_format_select",
+                label_visibility="collapsed"
+            )
+        
+        # Tagging Tool Section
+        st.markdown("---")
         tagger_tool = st.radio(
             "**Tagging Tool**",
             ["Default (TreeTagger/Stanza/Spacy)", "Custom Tagger"],
             index=0,
             horizontal=True,
             key="online_tagger_tool_select",
-            help="They are based on priority. e.g. if a language is chosen and not found in TreeTagger, we switch to Stanza, and if still not found, to Spacy."
+            help="Select tagger priority engine or configure custom data-driven tagger."
         )
         
+        custom_config = None
         if tagger_tool == "Custom Tagger":
-            st.warning("Custom Tagger for Online Corpus is not fully wired in this view yet. Please use Default.")
-            
-        if st.button("Process Downloaded Files", type="primary", use_container_width=True):
-            if tagger_tool == "Custom Tagger":
-                st.error("Please use the Default tagger for now.")
+            st.info("🔧 **Configure Custom Tagger**")
+            custom_mode = st.radio(
+                "Model Reusability Mode",
+                ["Train New Model", "Load Existing Model"],
+                index=0,
+                horizontal=True,
+                key="online_custom_tagger_mode"
+            )
+            if custom_mode == "Train New Model":
+                c_col1, c_col2 = st.columns(2)
+                with c_col1:
+                    custom_corpus_file = st.file_uploader(
+                        "Upload Pre-annotated Corpus (Mandatory)",
+                        type=["txt", "csv"],
+                        key="online_custom_corpus_file_uploader",
+                        help="One token per line: token TAG [lemma]. Sentences separated by blank lines."
+                    )
+                with c_col2:
+                    custom_lexicon_file = st.file_uploader(
+                        "Upload Pre-annotated Lexicon (Optional)",
+                        type=["txt", "csv"],
+                        key="online_custom_lexicon_file_uploader",
+                        help="Format: token TAG [lemma]. One entry per line."
+                    )
+                p_col1, p_col2 = st.columns(2)
+                with p_col1:
+                    custom_guesser = st.text_input("Guesser Tag", value="NN", key="online_custom_guesser")
+                    custom_algorithm = st.selectbox("Tagging Algorithm", ["Averaged Perceptron", "Naive Bayes", "Hidden Markov Model (TnT Style)"], index=0, key="online_custom_algo")
+                with p_col2:
+                    custom_window = st.slider("Context Window Size", 1, 3, 2, key="online_custom_window")
+                    custom_threshold = st.slider("Probabilistic Threshold", 0.0, 1.0, 0.1, step=0.05, key="online_custom_thresh")
+                
+                if custom_corpus_file:
+                    try:
+                        corpus_content = custom_corpus_file.read().decode('utf-8', errors='ignore')
+                        lexicon_content = custom_lexicon_file.read().decode('utf-8', errors='ignore') if custom_lexicon_file else None
+                        custom_config = {
+                            'corpus_content': corpus_content,
+                            'lexicon_content': lexicon_content,
+                            'guesser_tag': custom_guesser,
+                            'algorithm': custom_algorithm,
+                            'context_window': custom_window,
+                            'prob_threshold': custom_threshold
+                        }
+                    except Exception as e:
+                        st.error(f"Error reading custom tagger files: {e}")
+            else:
+                uploaded_model_file = st.file_uploader("Upload Trained Model File (.json or .pkl)", type=["json", "pkl"], key="online_uploaded_model_uploader")
+                if uploaded_model_file:
+                    try:
+                        fn = uploaded_model_file.name.lower()
+                        if fn.endswith('.json'):
+                            import json
+                            from core.preprocessing.custom_tagger import CustomDataDrivenTagger
+                            data = json.loads(uploaded_model_file.read().decode('utf-8'))
+                            pre_trained_tagger = CustomDataDrivenTagger.from_json(data)
+                        else:
+                            import pickle
+                            pre_trained_tagger = pickle.loads(uploaded_model_file.read())
+                        custom_config = {'pre_trained_tagger': pre_trained_tagger}
+                        st.success("✅ Custom tagger model loaded!")
+                    except Exception as e:
+                        st.error(f"Error loading custom model: {e}")
+
+        if st.button("🚀 Process Downloaded Files & Load into CORTEX", type="primary", use_container_width=True):
+            if tagger_tool == "Custom Tagger" and not custom_config:
+                st.error("Please upload pre-annotated corpus or pre-trained model file to use Custom Tagger.")
             else:
                 lang_code = "OTHER" if selected_lang_label == "OTHER" else STANZA_LANG_MAP[selected_lang_label]
                 import core.preprocessing.corpus_loader as corpus_loader
@@ -2104,16 +2172,22 @@ def render_online_builder_ui():
                     
                 files_to_process = []
                 for f_dict in downloaded_files:
-                    buf = io.BytesIO(f_dict['content'].encode('utf-8'))
-                    buf.name = f_dict['filename']
-                    files_to_process.append(buf)
+                    if hasattr(f_dict, 'read'):
+                        files_to_process.append(f_dict)
+                    elif isinstance(f_dict, dict) and 'content' in f_dict:
+                        cnt = f_dict['content']
+                        cnt_bytes = cnt.encode('utf-8') if isinstance(cnt, str) else cnt
+                        buf = io.BytesIO(cnt_bytes)
+                        buf.name = f_dict.get('filename', 'online_corpus.xml')
+                        files_to_process.append(buf)
                     
-                with st.spinner("Processing & indexing online corpus content..."):
+                with st.spinner("Processing & indexing corpus content..."):
                     result = corpus_loader.load_monolingual_corpus_files(
                         files_to_process,
                         explicit_lang_code=lang_code,
-                        selected_format="Raw (Natural text)",
-                        progress_callback=update_progress
+                        selected_format=selected_fmt,
+                        progress_callback=update_progress,
+                        custom_tagger_config=custom_config
                     )
                     
                     if result.get('error'):
@@ -2121,11 +2195,16 @@ def render_online_builder_ui():
                     else:
                         set_state('current_corpus_path', result['db_path'])
                         set_state('corpus_stats', result['stats'])
-                        set_state('current_corpus_name', "Online Scraped Batch")
+                        
+                        first_name = "Online Scraped Batch"
+                        if files_to_process and hasattr(files_to_process[0], 'name'):
+                            first_name = files_to_process[0].name.replace('.xml', '').replace('.txt', '')
+                            
+                        set_state('current_corpus_name', first_name)
                         set_state('xml_structure_data', result.get('structure'))
-                        set_state('target_lang', lang_code)
+                        set_state('target_lang', selected_lang_label)
                         set_state('downloaded_online_files', None) # Clear buffer
-                        st.success("Online corpus loaded successfully!")
+                        st.success(f"🎉 Corpus '{first_name}' successfully processed and loaded into CORTEX!")
                         st.rerun()
 
 def _render_metadata_annotation_tab(db_path, key_suffix):
