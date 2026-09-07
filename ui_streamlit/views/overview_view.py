@@ -1696,10 +1696,97 @@ def render_built_in_corpora_selection_ui():
 
 def render_online_builder_ui():
     import re
-    mode = get_state('online_builder_mode', 'YouTube')
+    import os
+    mode_options = ["Detik.com (News Scraper)", "YouTube", "Mastodon", "BlueSky", "Direct Links", "Keyword Search"]
+    curr_m = get_state('online_builder_mode', 'Detik.com (News Scraper)')
+    m_idx = mode_options.index(curr_m) if curr_m in mode_options else 0
+    selected_mode = st.radio("Select Online Data Source", mode_options, index=m_idx, horizontal=True, key="online_builder_source_radio")
+    set_state('online_builder_mode', selected_mode)
+    mode = selected_mode
+    
     st.subheader(f"🌐 Online Corpus Builder: {mode}")
     
-    if mode == "YouTube":
+    if mode.startswith("Detik"):
+        st.markdown("### 📰 Detik.com Tag Scraper & Corpus Builder")
+        st.caption("Automatically crawl news articles by tag on Detik.com, convert multi-page articles with `?single=1`, extract title/author/date/content, and build an annotated XML corpus ready for analysis.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            tag_val = st.text_input("Detik Tag / Category Keyword", value="ppds", placeholder="e.g. ppds, kesehatan, politik, teknologi", key="detik_tag_input", help="Base URL will be https://www.detik.com/tag/{tag}")
+        with col2:
+            target_count_opt = st.selectbox("Target Article Count", [50, 100, 150, 200, 300, "All (Max 500)"], index=1, key="detik_count_select")
+            
+        st.warning("⚠️ **Note**: Scraping larger article counts takes more processing time depending on network speed. Results are retrieved dynamically from live news feeds.")
+
+        if st.button("🚀 Scrape Detik.com & Build Corpus", type="primary", key="btn_scrape_detik"):
+            if not tag_val.strip():
+                st.error("Please enter a tag keyword.")
+            else:
+                from core.modules.detik_scraper import build_detik_corpus_xml
+                progress_bar = st.progress(0)
+                status = st.empty()
+                def up(m, p):
+                    progress_bar.progress(min(max(p, 0.0), 1.0))
+                    status.caption(m)
+
+                with st.spinner("Scraping Detik.com news articles..."):
+                    xml_content, df_summary, total_scraped = build_detik_corpus_xml(
+                        tag=tag_val, 
+                        target_count=target_count_opt, 
+                        progress_callback=up
+                    )
+                    
+                if xml_content and total_scraped > 0:
+                    set_state('last_detik_xml_content', xml_content)
+                    set_state('last_detik_df_summary', df_summary)
+                    set_state('last_detik_tag', tag_val)
+                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'!")
+                else:
+                    st.error(f"Could not retrieve articles for tag '{tag_val}'. Please check tag spelling or try another keyword.")
+
+        df_summary = get_state('last_detik_df_summary')
+        xml_content = get_state('last_detik_xml_content')
+        tag_used = get_state('last_detik_tag', 'detik')
+
+        if df_summary is not None and not df_summary.empty:
+            st.markdown(f"#### 📊 Scraped Articles Summary ({len(df_summary)} articles)")
+            st.dataframe(df_summary, use_container_width=True, hide_index=True)
+            
+            c_act1, c_act2 = st.columns(2)
+            with c_act1:
+                if st.button("📥 Load as Current Active Corpus in CORTEX", type="primary", key="btn_load_detik_active"):
+                    import tempfile
+                    from core.preprocessing import corpus_loader
+                    temp_dir = tempfile.gettempdir()
+                    xml_filename = f"Detik_{tag_used}.xml"
+                    temp_xml_path = os.path.join(temp_dir, xml_filename)
+                    with open(temp_xml_path, 'w', encoding='utf-8') as f:
+                        f.write(xml_content)
+                    
+                    with open(temp_xml_path, 'rb') as f_obj:
+                        f_obj.name = xml_filename
+                        with st.spinner("Processing & Tagging Corpus with Stanza..."):
+                            res = corpus_loader.load_monolingual_corpus_files([f_obj], explicit_lang_code='ID', selected_format='XML (Tagged)')
+                            if res.get('error'):
+                                st.error(res['error'])
+                            else:
+                                set_state('current_corpus_path', res['db_path'])
+                                set_state('corpus_stats', res['stats'])
+                                set_state('current_corpus_name', f"Detik_{tag_used}")
+                                set_state('xml_structure_data', res.get('structure'))
+                                set_state('target_lang', 'Indonesian')
+                                st.success(f"🎉 'Detik_{tag_used}' loaded as current active corpus!")
+                                st.rerun()
+            with c_act2:
+                st.download_button(
+                    label=f"💾 Download Detik Corpus (XML)",
+                    data=xml_content.encode('utf-8'),
+                    file_name=f"Detik_{tag_used}_corpus.xml",
+                    mime="application/xml",
+                    key="dl_detik_xml"
+                )
+
+    elif mode == "YouTube":
         st.info("💡 **Experimental:** Max 100,000 words limit for this session.")
         url = st.text_input("YouTube Video URL", placeholder="https://www.youtube.com/watch?v=...")
         opt = st.radio("Content to Download", ["Transcript only", "Comments only", "Both Transcript and Comments"], index=2)

@@ -401,7 +401,16 @@ def build_online_corpus(mode_type, params, progress_callback=None):
     builder = OnlineCorpusBuilder(limit_words=500000)
     warning = None
     
-    if mode_type == "youtube":
+    if mode_type == "detik":
+        from core.modules.detik_scraper import build_detik_corpus_xml
+        tag = params.get('tag', 'ppds')
+        target_count = params.get('target_count', 100)
+        xml_content, df_summary, total_count = build_detik_corpus_xml(tag, target_count=target_count, progress_callback=progress_callback)
+        if xml_content:
+            builder.add_content(f"detik_{tag}_corpus.xml", xml_content)
+        return builder.downloaded_files, warning
+        
+    elif mode_type == "youtube":
         url = params.get('url')
         mode = params.get('mode', 'both') # transcript, comments, both
         
