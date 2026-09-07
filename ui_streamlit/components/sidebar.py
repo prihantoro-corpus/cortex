@@ -107,10 +107,10 @@ def render_sidebar():
         else:
             or_index = openrouter_models.index("Custom Model")
             
-        selected_or_option = st.sidebar.selectbox("OpenRouter Model", openrouter_models, index=or_index, key="sidebar_openrouter_model_select")
+        selected_or_option = st.sidebar.radio("OpenRouter Model", openrouter_models, index=or_index, key="sidebar_openrouter_model_select")
         
         if selected_or_option == "Custom Model":
-            custom_or_model = st.sidebar.text_input("Enter Model Slug", value=current_or_model if current_or_model not in openrouter_models[:-1] else "google/gemini-2.5-flash", key="sidebar_openrouter_custom_model")
+            custom_or_model = st.sidebar.text_input("Enter Model Slug", value=current_or_model if current_or_model not in openrouter_models[:-1] else "google/gemma-4-26b-a4b-it:free", key="sidebar_openrouter_custom_model")
             final_or_model = custom_or_model
         else:
             final_or_model = selected_or_option
@@ -166,7 +166,7 @@ def render_sidebar():
         else:
             model_index = gemini_models.index("Custom Model")
             
-        selected_model_option = st.sidebar.selectbox("Gemini Model", gemini_models, index=model_index, key="sidebar_gemini_model_select")
+        selected_model_option = st.sidebar.radio("Gemini Model", gemini_models, index=model_index, key="sidebar_gemini_model_select")
         
         if selected_model_option == "Custom Model":
             custom_model = st.sidebar.text_input("Enter Model Name", value=current_g_model if current_g_model not in gemini_models[:-1] else "gemini-2.5-flash", key="sidebar_gemini_custom_model")
