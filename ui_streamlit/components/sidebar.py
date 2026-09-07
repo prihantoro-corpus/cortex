@@ -90,6 +90,7 @@ def render_sidebar():
         
         # Model Selection
         openrouter_models = [
+            "google/gemma-4-26b-a4b-it:free",
             "google/gemini-2.5-flash", 
             "google/gemini-2.5-pro",
             "google/gemini-2.5-flash-lite", 
