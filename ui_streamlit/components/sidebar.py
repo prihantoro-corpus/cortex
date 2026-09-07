@@ -131,8 +131,11 @@ def render_sidebar():
                 st.sidebar.error("Please enter an API Key.")
             else:
                 with st.spinner("Connecting..."):
-                    from core.ai_service import test_openrouter_connection
-                    success, msg = test_openrouter_connection(openrouter_key, final_or_model)
+                    import core.ai_service as ai_service
+                    import importlib
+                    if not hasattr(ai_service, 'test_openrouter_connection'):
+                        importlib.reload(ai_service)
+                    success, msg = ai_service.test_openrouter_connection(openrouter_key, final_or_model)
                     if success:
                         set_state('openrouter_connected', True)
                         set_state('openrouter_api_key', openrouter_key)
@@ -147,8 +150,11 @@ def render_sidebar():
                 st.sidebar.error("Please enter an API Key first.")
             else:
                 with st.spinner("Testing..."):
-                    from core.ai_service import test_openrouter_connection
-                    success, msg = test_openrouter_connection(openrouter_key, final_or_model)
+                    import core.ai_service as ai_service
+                    import importlib
+                    if not hasattr(ai_service, 'test_openrouter_connection'):
+                        importlib.reload(ai_service)
+                    success, msg = ai_service.test_openrouter_connection(openrouter_key, final_or_model)
                     if success:
                         st.sidebar.success(msg)
                     else:
