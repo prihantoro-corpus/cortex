@@ -1704,11 +1704,11 @@ def render_online_builder_ui():
         st.markdown("### 📰 Detik.com Tag Scraper & Corpus Builder")
         st.caption("Automatically crawl news articles by tag on Detik.com, convert multi-page articles with `?single=1`, extract title/author/date/content, and build an annotated XML corpus ready for analysis.")
         
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([1, 2])
         with col1:
             tag_val = st.text_input("Detik Tag / Category Keyword", value="ppds", placeholder="e.g. ppds, kesehatan, politik, teknologi", key="detik_tag_input", help="Base URL will be https://www.detik.com/tag/{tag}")
         with col2:
-            target_count_opt = st.selectbox("Target Article Count", [50, 100, 150, 200, 300, "All (Max 500)"], index=1, key="detik_count_select")
+            target_count_opt = st.radio("Target Article Count", [50, 100, 150, 200, 300, "All (Max 500)"], index=1, horizontal=True, key="detik_count_radio")
             
         st.warning("⚠️ **Note**: Scraping larger article counts takes more processing time depending on network speed. Results are retrieved dynamically from live news feeds.")
 
