@@ -1704,6 +1704,8 @@ def render_online_builder_ui():
         st.markdown("### 📰 Detik.com Tag Scraper & Corpus Builder")
         st.caption("Automatically crawl news articles by tag on Detik.com, convert multi-page articles with `?single=1`, extract title/author/date/content, and build an annotated XML corpus ready for analysis.")
         
+        # Step 1: Scraper Settings
+        st.markdown("#### 1️⃣ Scraper Settings")
         col1, col2 = st.columns([1, 2])
         with col1:
             tag_val = st.text_input("Detik Tag / Category Keyword", value="ppds", placeholder="e.g. ppds, kesehatan, politik, teknologi", key="detik_tag_input", help="Base URL will be https://www.detik.com/tag/{tag}")
@@ -1712,7 +1714,7 @@ def render_online_builder_ui():
             
         st.warning("⚠️ **Note**: Scraping larger article counts takes more processing time depending on network speed. Results are retrieved dynamically from live news feeds.")
 
-        if st.button("🚀 Scrape Detik.com & Build Corpus", type="primary", key="btn_scrape_detik"):
+        if st.button("🔍 Step 1: Scrape Detik.com News Articles", type="primary", key="btn_scrape_detik"):
             if not tag_val.strip():
                 st.error("Please enter a tag keyword.")
             else:
@@ -1734,7 +1736,7 @@ def render_online_builder_ui():
                     set_state('last_detik_xml_content', xml_content)
                     set_state('last_detik_df_summary', df_summary)
                     set_state('last_detik_tag', tag_val)
-                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'!")
+                    st.success(f"🎉 Successfully scraped {total_scraped} news articles for tag '{tag_val}'! Now configure language and tagger below before processing.")
                     st.rerun()
                 else:
                     st.error(f"Could not retrieve articles for tag '{tag_val}'. Please check tag spelling or try another keyword.")
@@ -1744,11 +1746,12 @@ def render_online_builder_ui():
         tag_used = get_state('last_detik_tag', 'detik')
 
         if df_summary is not None and not df_summary.empty:
-            st.markdown(f"#### 📊 Scraped Articles Summary ({len(df_summary)} articles)")
+            st.markdown("---")
+            st.markdown(f"#### 📊 2️⃣ Scraped Articles Summary ({len(df_summary)} articles)")
             st.dataframe(df_summary, use_container_width=True, hide_index=True)
             
             st.download_button(
-                label=f"💾 Download Detik Corpus (XML)",
+                label=f"💾 Download Detik Corpus XML (Detik_{tag_used}.xml)",
                 data=xml_content.encode('utf-8'),
                 file_name=f"Detik_{tag_used}_corpus.xml",
                 mime="application/xml",
@@ -1757,7 +1760,7 @@ def render_online_builder_ui():
             )
             
             st.markdown("---")
-            st.subheader("⚙️ Corpus Processing & Tagging Configuration")
+            st.markdown("#### ⚙️ 3️⃣ Language & Tagger Configuration")
             st.caption("Select your target language, corpus format, and tagger engine before loading the scraped articles into CORTEX.")
             
             from core.config import STANZA_LANG_MAP
@@ -1848,7 +1851,7 @@ def render_online_builder_ui():
                         except Exception as e:
                             st.error(f"Error loading model: {e}")
 
-            if st.button("📥 Process & Load Detik Corpus into CORTEX", type="primary", key="btn_process_load_detik", use_container_width=True):
+            if st.button("📥 Step 3: Process, Tag & Load Corpus into CORTEX", type="primary", key="btn_process_load_detik", use_container_width=True):
                 if detik_tagger_tool == "Custom Tagger" and not detik_custom_config:
                     st.error("Please configure or upload a custom tagger model first.")
                 else:
