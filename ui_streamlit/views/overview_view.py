@@ -1708,7 +1708,7 @@ def render_online_builder_ui():
         with col1:
             tag_val = st.text_input("Detik Tag / Category Keyword", value="ppds", placeholder="e.g. ppds, kesehatan, politik, teknologi", key="detik_tag_input", help="Base URL will be https://www.detik.com/tag/{tag}")
         with col2:
-            target_count_opt = st.radio("Target Article Count", [50, 100, 150, 200, 300, "All (Max 500)"], index=1, horizontal=True, key="detik_count_radio")
+            target_count_opt = st.radio("Target Article Count", [10, 50, 100, 150, 200, 300, "All (Max 500)"], index=0, horizontal=True, key="detik_count_radio")
             
         st.warning("⚠️ **Note**: Scraping larger article counts takes more processing time depending on network speed. Results are retrieved dynamically from live news feeds.")
 
@@ -1749,28 +1749,23 @@ def render_online_builder_ui():
             c_act1, c_act2 = st.columns(2)
             with c_act1:
                 if st.button("📥 Load as Current Active Corpus in CORTEX", type="primary", key="btn_load_detik_active"):
-                    import tempfile
+                    import io
                     from core.preprocessing import corpus_loader
-                    temp_dir = tempfile.gettempdir()
                     xml_filename = f"Detik_{tag_used}.xml"
-                    temp_xml_path = os.path.join(temp_dir, xml_filename)
-                    with open(temp_xml_path, 'w', encoding='utf-8') as f:
-                        f.write(xml_content)
-                    
-                    with open(temp_xml_path, 'rb') as f_obj:
-                        f_obj.name = xml_filename
-                        with st.spinner("Processing & Tagging Corpus with Stanza..."):
-                            res = corpus_loader.load_monolingual_corpus_files([f_obj], explicit_lang_code='ID', selected_format='XML (Tagged)')
-                            if res.get('error'):
-                                st.error(res['error'])
-                            else:
-                                set_state('current_corpus_path', res['db_path'])
-                                set_state('corpus_stats', res['stats'])
-                                set_state('current_corpus_name', f"Detik_{tag_used}")
-                                set_state('xml_structure_data', res.get('structure'))
-                                set_state('target_lang', 'Indonesian')
-                                st.success(f"🎉 'Detik_{tag_used}' loaded as current active corpus!")
-                                st.rerun()
+                    f_obj = io.BytesIO(xml_content.encode('utf-8'))
+                    f_obj.name = xml_filename
+                    with st.spinner("Processing & Tagging Corpus with Stanza..."):
+                        res = corpus_loader.load_monolingual_corpus_files([f_obj], explicit_lang_code='ID', selected_format='XML (Tagged)')
+                    if res.get('error'):
+                        st.error(res['error'])
+                    else:
+                        set_state('current_corpus_path', res['db_path'])
+                        set_state('corpus_stats', res['stats'])
+                        set_state('current_corpus_name', f"Detik_{tag_used}")
+                        set_state('xml_structure_data', res.get('structure'))
+                        set_state('target_lang', 'Indonesian')
+                        st.success(f"🎉 'Detik_{tag_used}' loaded as current active corpus!")
+                        st.rerun()
             with c_act2:
                 st.download_button(
                     label=f"💾 Download Detik Corpus (XML)",
