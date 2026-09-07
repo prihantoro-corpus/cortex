@@ -90,7 +90,8 @@ def render_sidebar():
         
         # Model Selection
         openrouter_models = [
-            "google/gemini-2.0-flash-001", 
+            "google/gemini-2.5-flash", 
+            "google/gemini-2.5-pro",
             "google/gemini-2.5-flash-lite", 
             "anthropic/claude-3.5-sonnet", 
             "meta-llama/llama-3.1-8b-instruct", 
@@ -98,7 +99,7 @@ def render_sidebar():
             "openai/gpt-4o-mini", 
             "Custom Model"
         ]
-        current_or_model = get_state('openrouter_model', 'google/gemini-2.0-flash-001')
+        current_or_model = get_state('openrouter_model', 'google/gemini-2.5-flash')
         
         if current_or_model in openrouter_models:
             or_index = openrouter_models.index(current_or_model)
@@ -108,7 +109,7 @@ def render_sidebar():
         selected_or_option = st.sidebar.selectbox("OpenRouter Model", openrouter_models, index=or_index, key="sidebar_openrouter_model_select")
         
         if selected_or_option == "Custom Model":
-            custom_or_model = st.sidebar.text_input("Enter Model Slug", value=current_or_model if current_or_model not in openrouter_models[:-1] else "google/gemini-2.0-flash-001", key="sidebar_openrouter_custom_model")
+            custom_or_model = st.sidebar.text_input("Enter Model Slug", value=current_or_model if current_or_model not in openrouter_models[:-1] else "google/gemini-2.5-flash", key="sidebar_openrouter_custom_model")
             final_or_model = custom_or_model
         else:
             final_or_model = selected_or_option

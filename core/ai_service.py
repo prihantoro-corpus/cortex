@@ -18,7 +18,7 @@ def _resolve_ai_settings(ai_provider=None, gemini_api_key=None, gemini_model=Non
     resolved_gemini_key = gemini_api_key or st_state.get('gemini_api_key') or ""
     resolved_gemini_model = gemini_model or st_state.get('gemini_model') or "gemini-2.5-flash"
     resolved_openrouter_key = openrouter_api_key or st_state.get('openrouter_api_key') or ""
-    resolved_openrouter_model = openrouter_model or st_state.get('openrouter_model') or "google/gemini-2.0-flash-001"
+    resolved_openrouter_model = openrouter_model or st_state.get('openrouter_model') or "google/gemini-2.5-flash"
     resolved_ollama_url = ollama_url or st_state.get('ollama_url') or "http://127.0.0.1:11434/api/generate"
     resolved_ollama_model = ollama_model or st_state.get('ai_model') or "phi3:latest"
     
