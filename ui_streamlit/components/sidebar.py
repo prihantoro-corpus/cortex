@@ -77,12 +77,81 @@ def render_sidebar():
     st.sidebar.title("AI Interpretation")
     
     # AI Provider Selection
-    ai_provider = st.sidebar.radio("AI Provider", ["Ollama", "Gemini"], 
-                                   index=0 if get_state('ai_provider') == "Ollama" else 1,
+    ai_providers = ["Ollama", "Gemini", "OpenRouter"]
+    curr_prov = get_state('ai_provider', 'Ollama')
+    prov_idx = ai_providers.index(curr_prov) if curr_prov in ai_providers else 0
+    ai_provider = st.sidebar.radio("AI Provider", ai_providers, 
+                                   index=prov_idx,
                                    key="sidebar_ai_provider")
     set_state('ai_provider', ai_provider)
 
-    if ai_provider == "Gemini":
+    if ai_provider == "OpenRouter":
+        openrouter_key = st.sidebar.text_input("OpenRouter API Key", value=get_state('openrouter_api_key', ''), type="password", key="sidebar_openrouter_key")
+        
+        # Model Selection
+        openrouter_models = [
+            "google/gemini-2.0-flash-001", 
+            "google/gemini-2.5-flash-lite", 
+            "anthropic/claude-3.5-sonnet", 
+            "meta-llama/llama-3.1-8b-instruct", 
+            "qwen/qwen-2.5-7b-instruct", 
+            "openai/gpt-4o-mini", 
+            "Custom Model"
+        ]
+        current_or_model = get_state('openrouter_model', 'google/gemini-2.0-flash-001')
+        
+        if current_or_model in openrouter_models:
+            or_index = openrouter_models.index(current_or_model)
+        else:
+            or_index = openrouter_models.index("Custom Model")
+            
+        selected_or_option = st.sidebar.selectbox("OpenRouter Model", openrouter_models, index=or_index, key="sidebar_openrouter_model_select")
+        
+        if selected_or_option == "Custom Model":
+            custom_or_model = st.sidebar.text_input("Enter Model Slug", value=current_or_model if current_or_model not in openrouter_models[:-1] else "google/gemini-2.0-flash-001", key="sidebar_openrouter_custom_model")
+            final_or_model = custom_or_model
+        else:
+            final_or_model = selected_or_option
+            
+        if openrouter_key != get_state('openrouter_api_key', '') or final_or_model != get_state('openrouter_model', ''):
+            set_state('openrouter_connected', False)
+            set_state('openrouter_api_key', openrouter_key)
+            set_state('openrouter_model', final_or_model)
+            
+        if get_state('openrouter_connected', False):
+            st.sidebar.markdown(f"<div style='font-size:0.9em; color:#4CAF50; font-weight:bold; margin-bottom:10px;'>🟢 Connected: {get_state('openrouter_model')}</div>", unsafe_allow_html=True)
+        else:
+            st.sidebar.markdown("<div style='font-size:0.9em; color:#FF9800; font-weight:bold; margin-bottom:10px;'>🔴 Not Connected</div>", unsafe_allow_html=True)
+
+        col1, col2 = st.sidebar.columns(2)
+        if col1.button("Connect to API", key="openrouter_connect_btn", use_container_width=True):
+            if not openrouter_key:
+                st.sidebar.error("Please enter an API Key.")
+            else:
+                with st.spinner("Connecting..."):
+                    from core.ai_service import test_openrouter_connection
+                    success, msg = test_openrouter_connection(openrouter_key, final_or_model)
+                    if success:
+                        set_state('openrouter_connected', True)
+                        set_state('openrouter_api_key', openrouter_key)
+                        set_state('openrouter_model', final_or_model)
+                        st.sidebar.success("Connected successfully!")
+                    else:
+                        set_state('openrouter_connected', False)
+                        st.sidebar.error(f"Connection failed: {msg}")
+                             
+        if col2.button("Test Connection", key="openrouter_test_btn", use_container_width=True):
+            if not openrouter_key:
+                st.sidebar.error("Please enter an API Key first.")
+            else:
+                with st.spinner("Testing..."):
+                    from core.ai_service import test_openrouter_connection
+                    success, msg = test_openrouter_connection(openrouter_key, final_or_model)
+                    if success:
+                        st.sidebar.success(msg)
+                    else:
+                        st.sidebar.error(msg)
+    elif ai_provider == "Gemini":
         gemini_key = st.sidebar.text_input("Gemini API Key", value=get_state('gemini_api_key', ''), type="password", key="sidebar_gemini_key")
         
         # Model Selection
@@ -131,7 +200,7 @@ def render_sidebar():
                     else:
                         set_state('gemini_connected', False)
                         st.sidebar.error(f"Connection failed: {msg}")
-                            
+                             
         if col2.button("Test Connection", key="gemini_test_btn", use_container_width=True):
             if not gemini_key:
                 st.sidebar.error("Please enter an API Key first.")
