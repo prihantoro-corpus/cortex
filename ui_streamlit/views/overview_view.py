@@ -1702,7 +1702,7 @@ def render_online_builder_ui():
     
     if mode.startswith("Detik"):
         st.markdown("### 📰 Detik.com Tag Scraper & Corpus Builder")
-        st.caption("Automatically crawl news articles by tag on Detik.com, convert multi-page articles with `?single=1`, extract title/author/date/content, and build an annotated XML corpus ready for analysis.")
+        st.caption("Automatically crawl news articles by tag on Detik.com, convert multi-page articles, extract title/author/date/content, and build an annotated XML corpus ready for analysis.")
         
         # Step 1: Scraper Settings
         st.markdown("#### 1️⃣ Scraper Settings")
