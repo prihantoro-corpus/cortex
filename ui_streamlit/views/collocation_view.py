@@ -835,25 +835,36 @@ def render_collocation_results_column(results, key_suffix=""):
                  plot_top_measure(df[df['Direction'].isin(['R', 'B'])], "Right-Dominant", "lightgreen")
              
          with tab_graph:
-             g_all, g_left, g_right = st.columns(3)
-             with g_all:
-                 st.caption("Overall Network (Top 30)")
+             subtab_all, subtab_left, subtab_right = st.tabs(["🌐 Overall Network", "⬅️ Left Network", "➡️ Right Network"])
+             with subtab_all:
+                 st.caption("Overall Collocation Network (Top 30)")
                  graph_html = create_pyvis_graph(node, df.head(30), measure_col=y_col, measure_name=stat_measure)
-                 if graph_html: st.components.v1.html(graph_html, height=400)
-             with g_left:
-                 st.caption("Left Network")
-                 df_l = df[df['Direction'].isin(['L', 'B'])].head(20)
+                 if graph_html:
+                     st.components.v1.html(graph_html, height=600)
+                 else:
+                     st.info("No overall network graph generated.")
+             with subtab_left:
+                 st.caption("Left-Dominant Collocation Network (Top 25)")
+                 df_l = df[df['Direction'].isin(['L', 'B'])].head(25)
                  if not df_l.empty:
                      graph_html_l = create_pyvis_graph(node, df_l, measure_col=y_col, measure_name=stat_measure)
-                     st.components.v1.html(graph_html_l, height=400)
-                 else: st.info("No L collocates.")
-             with g_right:
-                 st.caption("Right Network")
-                 df_r = df[df['Direction'].isin(['R', 'B'])].head(20)
+                     if graph_html_l:
+                         st.components.v1.html(graph_html_l, height=600)
+                     else:
+                         st.info("No Left network graph generated.")
+                 else:
+                     st.info("No Left (L) collocates found.")
+             with subtab_right:
+                 st.caption("Right-Dominant Collocation Network (Top 25)")
+                 df_r = df[df['Direction'].isin(['R', 'B'])].head(25)
                  if not df_r.empty:
                      graph_html_r = create_pyvis_graph(node, df_r, measure_col=y_col, measure_name=stat_measure)
-                     st.components.v1.html(graph_html_r, height=400)
-                 else: st.info("No R collocates.")
+                     if graph_html_r:
+                         st.components.v1.html(graph_html_r, height=600)
+                     else:
+                         st.info("No Right network graph generated.")
+                 else:
+                     st.info("No Right (R) collocates found.")
 
          st.markdown("### Usage Examples by Collocates")
          # Logic fix: Ensure db_path and name are passed correctly
