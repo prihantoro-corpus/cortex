@@ -75,5 +75,5 @@ def render_corpus_selection_main():
             set_state('source_type', source_type)
             
         if source_type == "Online Corpus":
-            online_mode = st.radio("Builder Mode", ["YouTube", "Mastodon", "BlueSky", "Link Collection", "Keyword Search"], horizontal=True, key="main_online_builder_mode")
+            online_mode = st.radio("Builder Mode", ["YouTube", "Mastodon", "BlueSky", "Link Collection", "Keyword Search", "Detik.com"], horizontal=True, key="main_online_builder_mode")
             set_state('online_builder_mode', online_mode)

@@ -1697,13 +1697,7 @@ def render_built_in_corpora_selection_ui():
 def render_online_builder_ui():
     import re
     import os
-    mode_options = ["Detik.com (News Scraper)", "YouTube", "Mastodon", "BlueSky", "Direct Links", "Keyword Search"]
-    curr_m = get_state('online_builder_mode', 'Detik.com (News Scraper)')
-    m_idx = mode_options.index(curr_m) if curr_m in mode_options else 0
-    selected_mode = st.radio("Select Online Data Source", mode_options, index=m_idx, horizontal=True, key="online_builder_source_radio")
-    set_state('online_builder_mode', selected_mode)
-    mode = selected_mode
-    
+    mode = get_state('online_builder_mode', 'Detik.com')
     st.subheader(f"🌐 Online Corpus Builder: {mode}")
     
     if mode.startswith("Detik"):
