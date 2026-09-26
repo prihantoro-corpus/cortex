@@ -10,9 +10,21 @@ def apply_pending_tag_inserts(target_key):
     Must be called BEFORE st.text_input(..., key=target_key) is instantiated to avoid StreamlitAPIException.
     """
     pending_key = f"_append_tag_{target_key}"
+    # Check general pending key as well as specific key
+    gen_pending_key = "_append_tag_any"
+    tag_str = None
     if pending_key in st.session_state:
         tag_str = st.session_state.pop(pending_key)
+    elif gen_pending_key in st.session_state:
+        tag_str = st.session_state.get(gen_pending_key)
+        # Keep gen_pending_key until all known inputs are updated or cleared on rerun
+        
+    if tag_str:
         current_val = st.session_state.get(target_key, "")
+        if not current_val:
+            # Fallback to shared kwic_search_term
+            current_val = st.session_state.get('kwic_search_term', "")
+            
         if current_val:
             if current_val.endswith(" ") or tag_str.startswith(" "):
                 new_val = current_val + tag_str
@@ -20,13 +32,18 @@ def apply_pending_tag_inserts(target_key):
                 new_val = current_val + " " + tag_str
         else:
             new_val = tag_str
+            
         st.session_state[target_key] = new_val
+        st.session_state['kwic_search_term'] = new_val
+        from ui_streamlit.state_manager import set_state
+        set_state('kwic_search_term', new_val)
 
 def _insert_tag_to_state(target_key, tag_str):
     """
     Queues a tag string for insertion into target_key and triggers a rerun.
     """
     st.session_state[f"_append_tag_{target_key}"] = tag_str
+    st.session_state["_append_tag_any"] = tag_str
     st.rerun()
 
 def _render_reference_pos_tags(target_key, filter_text=""):

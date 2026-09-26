@@ -36,6 +36,11 @@ def render_concordance_view():
                 st.warning("Please load a corpus first.")
                 return
 
+            from ui_streamlit.components.query_autocomplete import apply_pending_tag_inserts
+            apply_pending_tag_inserts("kwic_input_simple")
+            apply_pending_tag_inserts("kwic_input")
+            st.session_state.pop("_append_tag_any", None)
+
             # Initialize XML restriction variables to prevent NameError in NL search modes
             xml_where = ""
             xml_params = []
@@ -1137,9 +1142,7 @@ def render_visualisation_tab(cluster_results, has_coll_filter=False):
             if node_forms:
                 if len(cluster_names) == 1:
                     # Single corpus / no restrictions case: plot variations on Y-axis
-                    name = cluster_names[0]
-                    br = cluster_results[name].get('breakdown')
-                    frequencies = []
+                    form_freqs = []
                     for form in node_forms:
                         val = 0.0
                         if br is not None and not br.empty:
@@ -1152,7 +1155,12 @@ def render_visualisation_tab(cluster_results, has_coll_filter=False):
                             match = br[br[t_col] == form]
                             if not match.empty and col:
                                 val = float(match[col].iloc[0]) if is_rel else int(match[col].iloc[0])
-                        frequencies.append(val)
+                        form_freqs.append((form, val))
+                    
+                    # Sort descending by frequency so highest frequency is at the top of the horizontal bar chart
+                    form_freqs.sort(key=lambda x: x[1])
+                    node_forms = [f[0] for f in form_freqs]
+                    frequencies = [f[1] for f in form_freqs]
                         
                     text_labels = [f"{f:.2f}" if is_rel else str(int(f)) for f in frequencies]
                     fig_node.add_trace(go.Bar(
@@ -1173,8 +1181,23 @@ def render_visualisation_tab(cluster_results, has_coll_filter=False):
                         height=max(300, 45 * len(node_forms) + 100)
                     )
                 else:
-                    # Multiple restrictions case: plot grouped bar chart
+                    # Multiple restrictions case: calculate total frequency per form and sort descending
+                    form_totals = []
                     for form in node_forms:
+                        tot = 0.0
+                        for cname in cluster_names:
+                            cbr = cluster_results[cname].get('breakdown')
+                            if cbr is not None and not cbr.empty:
+                                ct_col = 'Token Form' if 'Token Form' in cbr.columns else cbr.columns[0]
+                                ccol = ('Relative Frequency (per M)' if 'Relative Frequency (per M)' in cbr.columns else cbr.columns[2]) if is_rel else ('Absolute Frequency' if 'Absolute Frequency' in cbr.columns else cbr.columns[1])
+                                cmatch = cbr[cbr[ct_col] == form]
+                                if not cmatch.empty and ccol:
+                                    tot += float(cmatch[ccol].iloc[0]) if is_rel else int(cmatch[ccol].iloc[0])
+                        form_totals.append((form, tot))
+                    form_totals.sort(key=lambda x: x[1], reverse=True)
+                    sorted_forms = [f[0] for f in form_totals]
+
+                    for form in sorted_forms:
                         x_vals = []
                         y_vals = []
                         for name in cluster_names:
