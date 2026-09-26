@@ -70,6 +70,7 @@ scratch/
 
 # _dont_push folder
 _dont_push/
+wordlist/
 
 # TreeTagger Models
 treetagger/language_model/*

@@ -311,7 +311,7 @@ def render_overview_stats(name, path, stats, structure, error, key_suffix=""):
 
 
     # Show classification for ALL languages now (via Translation)
-    tabs_list = ["XML", "Sub-corpus Stats", "Frequency List", "POS", "Cloud", "Metadata", "🏷️ Sentiment & Topic", "🏷️ Named Entities", "🔱 Dependency Parsing", "📖 Reading Ease", "📖 Lexical Complexity"]
+    tabs_list = ["XML", "Sub-corpus Stats", "Frequency List", "POS", "Cloud", "Metadata", "🏷️ Sentiment & Topic", "🏷️ Named Entities", "🔱 Dependency Parsing", "🏷️ Semantic Annotation", "📖 Reading Ease", "📖 Lexical Complexity"]
     
     selected_tab = render_custom_button_tabs(tabs_list, key_suffix)
     
@@ -372,6 +372,9 @@ def render_overview_stats(name, path, stats, structure, error, key_suffix=""):
 
     elif selected_tab == "🔱 Dependency Parsing":
         _render_dependency_tab(path, key_suffix)
+
+    elif selected_tab == "🏷️ Semantic Annotation":
+        _render_semantic_tab(path, key_suffix)
 
     elif selected_tab == "📖 Reading Ease":
         _render_reading_ease_tab(path, key_suffix)
@@ -593,7 +596,7 @@ def render_full_overview(name, path, stats, structure, error):
     current_lang = ov.get_corpus_language(path)
     show_classification = True
     
-    tabs_list = ["XML Structure", "Sub-corpus Stats", "Frequency List", "Unique POS Tags", "Word Cloud", "Metadata Annotation", "🏷️ Sentiment & Topic Analysis", "🏷️ Named Entity Recognition (NER)", "🔱 Dependency Parsing", "📖 Reading Ease", "📖 Lexical Complexity"]
+    tabs_list = ["XML Structure", "Sub-corpus Stats", "Frequency List", "Unique POS Tags", "Word Cloud", "Metadata Annotation", "🏷️ Sentiment & Topic Analysis", "🏷️ Named Entity Recognition (NER)", "🔱 Dependency Parsing", "🏷️ Semantic Annotation", "📖 Reading Ease", "📖 Lexical Complexity"]
 
     selected_tab = render_custom_button_tabs(tabs_list, "full")
     
@@ -692,6 +695,9 @@ def render_full_overview(name, path, stats, structure, error):
             
         elif selected_tab == "🔱 Dependency Parsing":
             _render_dependency_tab(path, "full")
+
+        elif selected_tab == "🏷️ Semantic Annotation":
+            _render_semantic_tab(path, "full")
 
         elif selected_tab == "📖 Reading Ease":
             _render_reading_ease_tab(path, "full")
@@ -3719,6 +3725,170 @@ def _render_dependency_tab(db_path, key_suffix=""):
                 st.rerun()
             else:
                 st.error("Failed to run dependency parsing.")
+
+
+def _render_semantic_tab(db_path, key_suffix=""):
+    """
+    Renders the Semantic Tagging & Annotation tab.
+    Loads Indonesian Semantic Lexicon Excel (_File Induk Semantic Lexicon_31_03_2023.xlsx)
+    and tags tokens with USAS-style semantic tags (e.g., B3, M1|A.1.1, Z99).
+    """
+    import plotly.express as px
+    import openpyxl
+    
+    st.subheader("🏷️ Semantic Annotation (USAS Lexicon)")
+    
+    with st.expander("💡 **Method & Transparency: Semantic Tagging**", expanded=False):
+        st.markdown("""
+        **Semantic Tagging:** Annotates tokens with semantic category tags based on the Indonesian Semantic Lexicon.
+        - **Single Label:** Word matched to one semantic tag (e.g. `B3`).
+        - **Ambiguous / Multiple Labels:** Words with multiple candidate senses are assigned all tags joined by pipe `|` (e.g. `B3|M1|A.1.1`).
+        - **Unlabeled / OOV (Z99):** Unmatched words or words with no labels in the lexicon are assigned fallback tag `Z99` (Unmatched/Unclassified).
+        
+        **Querying Semantic Tags in Concordance:**
+        - **Exact match:** `<semantic="B3">` or `[semantic="B3"]`
+        - **Disambiguated / Contains match:** `<semantic=".*B3.*">` (Matches `B3` inside ambiguous entries like `B3|M1`)
+        - **Regex special characters (e.g. dots in `A.1.1`):** In CORTEX tag search, `<semantic=".*A\\.1\\.1.*">` or simple string matching matches tags seamlessly!
+        """)
+
+    # Check if column 'semantic' already exists in DuckDB
+    has_semantic = False
+    try:
+        with duckdb.connect(db_path, read_only=True) as con:
+            cols = [c[1].lower() for c in con.execute("PRAGMA table_info(corpus)").fetchall()]
+            has_semantic = 'semantic' in cols
+    except Exception as e:
+        pass
+
+    if has_semantic:
+        st.success("✅ **Semantic tags are already annotated in this corpus database.**")
+        try:
+            with duckdb.connect(db_path, read_only=True) as con:
+                sem_stats = con.execute("""
+                    SELECT semantic, COUNT(*) as Count, 
+                           CAST(approx_count_distinct(_token_low) AS FLOAT) / COUNT(*) as TTR
+                    FROM corpus 
+                    WHERE semantic IS NOT NULL AND semantic != ''
+                    GROUP BY semantic 
+                    ORDER BY Count DESC
+                    LIMIT 100
+                """).fetch_df()
+                
+                if not sem_stats.empty:
+                    st.markdown("#### 📊 Top 100 Semantic Tag Distribution")
+                    c_s1, c_s2 = st.columns([1, 1])
+                    with c_s1:
+                        fig = px.pie(sem_stats.head(15), names='semantic', values='Count', title="Top 15 Semantic Tags", hole=0.4)
+                        st.plotly_chart(fig, use_container_width=True)
+                    with c_s2:
+                        st.dataframe(sem_stats, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"Error reading semantic statistics: {e}")
+
+    st.divider()
+    st.write("**Run / Re-run Semantic Annotation**")
+    
+    excel_default_path = r"c:\Users\priha\Documents\cortex\wordlist\indonesian\semantic\_File Induk Semantic Lexicon_31_03_2023.xlsx"
+    
+    if not os.path.exists(excel_default_path):
+        st.info("🚧 **Semantic Annotation Lexicon: Coming Soon...**\n\nAutomated lexicon-based semantic tagging is currently running on local installations. Pre-annotated corpora already include all semantic tags for searching!")
+        return
+
+    excel_path_input = st.text_input(
+        "Semantic Lexicon Excel File Path",
+        value=excel_default_path if os.path.exists(excel_default_path) else "",
+        key=f"sem_excel_path_{key_suffix}",
+        help="Path to the Excel lexicon containing Column K (word form entry) and Columns L-P (semantic tag labels)."
+    )
+    
+    if st.button("🚀 Run Semantic Tagging Annotation", key=f"run_sem_btn_{key_suffix}", type="primary"):
+        if not os.path.exists(excel_path_input):
+            st.error(f"Excel file not found at: `{excel_path_input}`")
+            return
+            
+        with st.spinner("Loading semantic lexicon and updating corpus database..."):
+            try:
+                # 1. Parse Excel Lexicon
+                wb = openpyxl.load_workbook(excel_path_input, data_only=True)
+                sheet = wb.active
+                
+                lexicon = {}
+                for i, row in enumerate(sheet.iter_rows(values_only=True)):
+                    if i == 0:
+                        continue # Skip header row
+                    word_entry = row[10] # Column K (index 10)
+                    if not word_entry:
+                        continue
+                    word = str(word_entry).strip()
+                    if not word or word.lower() == 'none':
+                        continue
+                    
+                    # Columns L to P (indices 11 to 15)
+                    raw_tags = []
+                    for cell in row[11:16]:
+                        if cell is not None:
+                            t = str(cell).strip()
+                            if t and t.lower() != 'none':
+                                raw_tags.append(t)
+                                
+                    if not raw_tags:
+                        tag_str = 'Z99'
+                    else:
+                        tag_str = '|'.join(raw_tags)
+                        
+                    if word not in lexicon:
+                        lexicon[word] = set()
+                    for t in tag_str.split('|'):
+                        lexicon[word].add(t)
+                        
+                # Format final lexicon mapping: word -> "TAG1|TAG2"
+                final_lexicon = {}
+                for w, tset in lexicon.items():
+                    final_lexicon[w] = '|'.join(sorted(tset))
+                    final_lexicon[w.lower()] = '|'.join(sorted(tset))
+                    
+                st.info(f"Loaded {len(lexicon):,} word entries from semantic lexicon.")
+
+                # 2. Update DuckDB database
+                with duckdb.connect(db_path, read_only=False) as con:
+                    # Check/Add semantic column
+                    cols_info = con.execute("PRAGMA table_info(corpus)").fetch_df()
+                    existing_cols = [c.lower() for c in cols_info['name'].tolist()]
+                    if 'semantic' not in existing_cols:
+                        con.execute("ALTER TABLE corpus ADD COLUMN semantic VARCHAR")
+                        
+                    # Fetch distinct lower-case tokens from corpus
+                    tokens_df = con.execute("SELECT DISTINCT _token_low FROM corpus WHERE _token_low IS NOT NULL").fetch_df()
+                    
+                    # Map tokens to semantic tags
+                    updates = []
+                    for tok in tokens_df['_token_low']:
+                        stag = final_lexicon.get(tok, 'Z99')
+                        updates.append((stag, tok))
+                        
+                    # Bulk update in temporary table for speed
+                    con.execute("CREATE TEMP TABLE sem_map (tag VARCHAR, token_low VARCHAR)")
+                    con.executemany("INSERT INTO sem_map VALUES (?, ?)", updates)
+                    
+                    con.execute("""
+                        UPDATE corpus 
+                        SET semantic = sem_map.tag 
+                        FROM sem_map 
+                        WHERE corpus._token_low = sem_map.token_low
+                    """)
+                    
+                    con.execute("DROP TABLE sem_map")
+
+                st.toast("Semantic Tagging completed & written to corpus database! 🚀", icon="✅")
+                st.cache_data.clear()
+                set_state(f'xml_export_{key_suffix}', None)
+                set_state('xml_export_full', None)
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Semantic Tagging failed: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 
 def _render_lexical_complexity_tab(db_path, key_suffix=""):

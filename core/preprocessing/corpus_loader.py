@@ -829,6 +829,13 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code=None, selecte
         if fname:
             _load_local_tagset(db_path, fname)
 
+    # Auto-apply Indonesian Semantic Tagging if corpus language is Indonesian
+    if final_lang_code in ('id', 'ID', 'Indonesian'):
+        try:
+            _apply_indonesian_semantic_tagging_to_db(db_path)
+        except Exception as _e_sem:
+            print(f"Auto-semantic tagging error: {_e_sem}")
+
     # Save a copy to cache for instant future loading
     if 'cached_db_path' in locals() and cached_db_path:
         try:
@@ -1303,4 +1310,55 @@ def download_file(url, local_path, progress_callback=None):
             if total_size > 0 and progress_callback:
                 percent = downloaded / total_size
                 progress_callback(0.05 + percent * 0.7, f"Downloading: {downloaded / 1024 / 1024:.1f}MB / {total_size / 1024 / 1024:.1f}MB")
+
+def _apply_indonesian_semantic_tagging_to_db(db_path):
+    """
+    Applies Indonesian Semantic Lexicon tags to all tokens in the given DuckDB database.
+    """
+    excel_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'wordlist', 'indonesian', 'semantic', '_File Induk Semantic Lexicon_31_03_2023.xlsx')
+    if not os.path.exists(excel_path):
+        return
+        
+    import openpyxl
+    wb = openpyxl.load_workbook(excel_path, data_only=True)
+    sheet = wb.active
+    
+    lexicon = {}
+    for i, row in enumerate(sheet.iter_rows(values_only=True)):
+        if i == 0: continue
+        w_entry = row[10]
+        if not w_entry: continue
+        w = str(w_entry).strip()
+        if not w or w.lower() == 'none': continue
+        
+        raw_tags = [str(c).strip() for c in row[11:16] if c is not None and str(c).strip() and str(c).strip().lower() != 'none']
+        tag_str = 'Z99' if not raw_tags else '|'.join(raw_tags)
+        
+        if w not in lexicon: lexicon[w] = set()
+        for t in tag_str.split('|'): lexicon[w].add(t)
+
+    final_lexicon = {}
+    for w, tset in lexicon.items():
+        s_val = '|'.join(sorted(tset))
+        final_lexicon[w] = s_val
+        final_lexicon[w.lower()] = s_val
+
+    with duckdb.connect(db_path, read_only=False) as con:
+        cols_info = con.execute('PRAGMA table_info(corpus)').fetch_df()
+        existing_cols = [c.lower() for c in cols_info['name'].tolist()]
+        if 'semantic' not in existing_cols:
+            con.execute('ALTER TABLE corpus ADD COLUMN semantic VARCHAR')
+            
+        tokens_df = con.execute('SELECT DISTINCT _token_low FROM corpus WHERE _token_low IS NOT NULL').fetch_df()
+        updates = []
+        for tok in tokens_df['_token_low']:
+            stag = final_lexicon.get(tok, 'Z99')
+            updates.append((stag, tok))
+            
+        con.execute('CREATE TEMP TABLE sem_map (tag VARCHAR, token_low VARCHAR)')
+        con.executemany('INSERT INTO sem_map VALUES (?, ?)', updates)
+        
+        con.execute('UPDATE corpus SET semantic = sem_map.tag FROM sem_map WHERE corpus._token_low = sem_map.token_low')
+        con.execute('DROP TABLE sem_map')
+        print(f"Auto-annotated Indonesian corpus at {db_path} with USAS semantic tags.")
 

@@ -58,6 +58,14 @@ GUIDELINES = {
             * Annotate with dependency parsing (e.g., nsubj for noun subject, agent, relcl for relative clause).
             * **Spacy pipeline model:** Choose your preferred model > Run dependency parsing.
         """,
+        "🏷️ Semantic Annotation": """
+            ### 📖 Semantic Annotation Guide
+            * Annotates tokens with USAS semantic category tags from the Indonesian Semantic Lexicon.
+            * **Single Tag:** Word matched to one semantic category (e.g., `B3`).
+            * **Ambiguous Tags:** Words with multiple candidate senses are assigned piped tags (e.g., `B3|M1|A.1.1`).
+            * **Unmatched / OOV:** Words without labels are assigned `Z99`.
+            * **Querying:** Use `<semantic="B3">` for exact matches, `<semantic=".*B3.*">` for substring/ambiguous matches, or `<semantic=".*A\\.1\\.1.*">` for tags containing dots.
+        """,
         "📖 Reading Ease": """
             ### 📖 Reading Ease Guide
             * Evaluates texts using standard indexes (Flesch Reading Ease, Flesch-Kincaid Grade Level, LIX, RIX).
