@@ -1203,6 +1203,7 @@ def render_multi_node_results():
         
     # Calculate overlap lists
     shared_items = []
+    all_items = []
     unique_items = {node: [] for node in nodes}
     
     for coll_lower, data in collocate_to_nodes.items():
@@ -1224,6 +1225,7 @@ def render_multi_node_results():
                 row_dict[f"{node} Freq"] = 0
                 row_dict[f"{node} Score"] = 0.0
                 
+        all_items.append(row_dict)
         if overlap_degree > 1:
             shared_items.append(row_dict)
         else:
@@ -1235,6 +1237,7 @@ def render_multi_node_results():
             })
             
     shared_df = pd.DataFrame(shared_items)
+    all_df = pd.DataFrame(all_items)
     
     # 1. Visualization Controls at top of results section
     st.markdown("#### ⚙️ Chart Configuration & Sorting")
@@ -1317,12 +1320,12 @@ def render_multi_node_results():
             
         return raw_score
 
-    if not shared_df.empty:
-        # Calculate Combined Score for each row dynamically
-        combined_scores = []
-        for _, row in shared_df.iterrows():
-            raw_scores = [float(row.get(f"{node} Score", 0.0)) for node in nodes]
-            
+    def calc_combined(df_target):
+        if df_target.empty:
+            return df_target
+        scores_list = []
+        for _, r in df_target.iterrows():
+            raw_scores = [float(r.get(f"{node} Score", 0.0)) for node in nodes]
             if calc_method == "Harmonic Mean":
                 active = [s for s in raw_scores if s > 0]
                 val = len(active) / sum(1.0 / s for s in active) if active else 0.0
@@ -1330,18 +1333,18 @@ def render_multi_node_results():
                 val = sum(get_calc_score(node, s) for node, s in zip(nodes, raw_scores))
             elif calc_method == "Z-Score Standardization":
                 val = sum(get_calc_score(node, s) for node, s in zip(nodes, raw_scores))
-            else: # Simple Aggregate
+            else:
                 val = sum(raw_scores)
-                
-            combined_scores.append(round(val, 2))
-            
-        shared_df['Combined Score'] = combined_scores
-        
-        # Apply sorting to shared_df
+            scores_list.append(round(val, 2))
+        df_target['Combined Score'] = scores_list
         if sort_mode == 'shared':
-            shared_df = shared_df.sort_values(by=['degree_num', 'Combined Score'], ascending=[False, False]).reset_index(drop=True)
+            df_target = df_target.sort_values(by=['degree_num', 'Combined Score'], ascending=[False, False]).reset_index(drop=True)
         else:
-            shared_df = shared_df.sort_values(by=['Combined Score', 'degree_num'], ascending=[False, False]).reset_index(drop=True)
+            df_target = df_target.sort_values(by=['Combined Score', 'degree_num'], ascending=[False, False]).reset_index(drop=True)
+        return df_target
+
+    shared_df = calc_combined(shared_df)
+    all_df = calc_combined(all_df)
         
     tab_shared, tab_unique, tab_graph = st.tabs(["🔗 Shared Collocates", "💎 Unique Collocates", "📊 Visual Comparison"])
     
@@ -1389,10 +1392,10 @@ def render_multi_node_results():
                     st.info(f"No unique collocates found for '{node}'.")
 
     with tab_graph:
-        render_multi_node_charts(nodes, shared_df, stat_measure, calc_method, prettify, get_calc_score)
+        render_multi_node_charts(nodes, shared_df, stat_measure, calc_method, prettify, get_calc_score, all_df=all_df)
 
 
-def render_multi_node_charts(nodes, shared_df, stat_measure, calc_method, prettify, get_calc_score_fn):
+def render_multi_node_charts(nodes, shared_df, stat_measure, calc_method, prettify, get_calc_score_fn, all_df=None):
     if shared_df.empty:
         st.info("No shared collocates to visualize.")
         return
@@ -1611,7 +1614,8 @@ def render_multi_node_charts(nodes, shared_df, stat_measure, calc_method, pretti
             st.info("No overlap groups detected.")
 
     with viz_tab4:
-        render_collocation_network(nodes, shared_df, key_suffix="multi")
+        df_for_net = all_df if (all_df is not None and not all_df.empty) else shared_df
+        render_collocation_network(nodes, df_for_net, key_suffix="multi")
 
     # Excel download button for visual comparison data
     st.markdown("---")
@@ -1694,27 +1698,63 @@ def render_collocation_network(nodes, shared_df, key_suffix=""):
         return
         
     G = nx.Graph()
-    
+
+    # Distinct palette for entry nodes
     NODE_COLORS = [
-        "#FF6B6B", "#4D96FF", "#6BCB77", "#FFD93D", "#9B5DE5", 
-        "#F15BB5", "#00F5D4", "#00BBF9", "#F77F00", "#D62828"
+        "#FF5964", "#35A7FF", "#2EBD6E", "#9D4EDD", "#FF9F1C", 
+        "#00C49F", "#FF007F", "#00F5D4", "#795297", "#E63946"
     ]
+    node_to_color = {node: NODE_COLORS[i % len(NODE_COLORS)] for i, node in enumerate(nodes)}
+    nodes_set = set(nodes)
     
+    # Check which entry nodes are also collocates of other nodes in df_top
+    collocates_in_top = set(df_top['Collocate'].tolist())
+    dual_nodes = nodes_set.intersection(collocates_in_top)
+    
+    # Helper to generate SVG data URI for half-and-half circle
+    import urllib.parse
+    def make_dual_color_svg(left_color, right_color):
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">'
+            f'<circle cx="50" cy="50" r="48" fill="{left_color}"/>'
+            f'<path d="M 50,2 A 48,48 0 0,1 50,98 Z" fill="{right_color}"/>'
+            f'<circle cx="50" cy="50" r="48" fill="none" stroke="#ffffff" stroke-width="4"/>'
+            f'</svg>'
+        )
+        return "data:image/svg+xml;utf8," + urllib.parse.quote(svg)
+
+    # Standard collocate color (warm yellow)
+    COLLOCATE_COLOR = "#F4D03F"
+
     # Add Node Word nodes
     for i, node in enumerate(nodes):
-        color = NODE_COLORS[i % len(NODE_COLORS)]
-        G.add_node(
-            node,
-            label=str(node),
-            color=color,
-            size=35,
-            font={'size': font_size + 6, 'color': '#ffffff', 'strokeWidth': 5, 'strokeColor': '#000000'},
-            shape="dot",
-            title=f"Node Word: {node}"
-        )
+        primary_color = node_to_color[node]
+        if node in dual_nodes:
+            # Entry node is also a collocate of another node: display half-and-half
+            # (primary node color on one half, collocate yellow on the other half)
+            svg_uri = make_dual_color_svg(primary_color, COLLOCATE_COLOR)
+            G.add_node(
+                node,
+                label=str(node),
+                shape="image",
+                image=svg_uri,
+                size=35,
+                font={'size': font_size + 6, 'color': '#ffffff', 'strokeWidth': 5, 'strokeColor': '#000000'},
+                title=f"Node Word (also Collocate): {node}"
+            )
+        else:
+            G.add_node(
+                node,
+                label=str(node),
+                color=primary_color,
+                size=35,
+                font={'size': font_size + 6, 'color': '#ffffff', 'strokeWidth': 5, 'strokeColor': '#000000'},
+                shape="dot",
+                title=f"Node Word: {node}"
+            )
         
     # Count collocate sharing
-    added_collocates = set()
+    added_collocates = set(nodes)  # Entry nodes already added
     edges_to_add = []
     
     for _, row in df_top.iterrows():
@@ -1722,14 +1762,13 @@ def render_collocation_network(nodes, shared_df, key_suffix=""):
         degree = int(row['ParsedDegree'])
         combined_score = float(row['Combined Score'])
         
-        # Add collocate node
+        # Add collocate node (if not already added as an entry node)
         if coll not in added_collocates:
-            node_size = 12 + (degree * 4)
-            node_color = "#00FFF5" if degree > 1 else "#a5b4fc"
+            node_size = 14 + (degree * 3)
             G.add_node(
                 coll,
                 label=str(coll),
-                color=node_color,
+                color=COLLOCATE_COLOR,
                 size=node_size,
                 font={'size': font_size, 'color': '#ffffff', 'strokeWidth': 3, 'strokeColor': '#000000'},
                 shape="dot",

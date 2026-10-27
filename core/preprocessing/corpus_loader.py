@@ -803,7 +803,9 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code=None, selecte
             actual_tagger = "SpaCy (Fallback from TreeTagger)"
         elif 'stanza_warning' in locals() and stanza_warning and 'switching to Stanza' in stanza_warning:
             actual_tagger = "Stanza (Fallback)"
-        elif final_lang_code in ['id', 'mg', 'en']:
+        elif 'stanza_warning' in locals() and stanza_warning and 'switching to Custom Tagger' in stanza_warning:
+            actual_tagger = "Custom HMM Tagger (Fallback)"
+        elif final_lang_code in tagging.TREETAGGER_LANG_MAP:
             actual_tagger = "TreeTagger"
             if final_lang_code == 'id':
                 actual_tagset = "ID-BPPT Indonesian Tagset"
@@ -811,6 +813,8 @@ def load_monolingual_corpus_files(file_sources, explicit_lang_code=None, selecte
                 actual_tagset = "TreeTagger (Malagasy)"
             elif final_lang_code == 'en':
                 actual_tagset = "Penn Treebank (PTB)"
+            else:
+                actual_tagset = f"TreeTagger ({final_lang_code.upper()})"
         elif 'stanza_warning' in locals() and stanza_warning:
             actual_tagger = "Simple Fallback Tagger"
         else:

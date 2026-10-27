@@ -343,10 +343,17 @@ def render_overview_stats(name, path, stats, structure, error, key_suffix=""):
             st.caption("Displaying top 50 tokens.")
             st.dataframe(df, use_container_width=True, hide_index=True)
             
-            with st.spinner("Compiling full frequency list for download..."):
-                full_df = ov.get_top_frequencies_v2(path, limit=None, xml_where_clause=xml_where, xml_params=xml_params)
-                full_df['Rel. Freq'] = (full_df['frequency'] / total * 1_000_000).round(2)
-                st.download_button("⬇ Download Full Frequency List", data=df_to_excel_bytes(full_df), file_name=f"{name}_full_freq.xlsx", key=f"dl_freq_{key_suffix}")
+            # On-demand full frequency export to prevent blocking the WebSocket with a massive Excel file on load
+            if st.button("📊 Compile Full Frequency List for Download", key=f"btn_compile_full_freq_{key_suffix}"):
+                with st.spinner("Compiling full frequency list for download..."):
+                    full_df = ov.get_top_frequencies_v2(path, limit=None, xml_where_clause=xml_where, xml_params=xml_params)
+                    full_df['Rel. Freq'] = (full_df['frequency'] / total * 1_000_000).round(2)
+                    st.download_button(
+                        "⬇ Download Full Frequency List (.xlsx)", 
+                        data=df_to_excel_bytes(full_df), 
+                        file_name=f"{name}_full_freq.xlsx", 
+                        key=f"dl_freq_{key_suffix}"
+                    )
         else: st.caption("No frequencies.")
         
     elif selected_tab == "POS":
@@ -543,18 +550,22 @@ def render_full_overview(name, path, stats, structure, error):
     if path and os.path.exists(path):
         st.write("") # spacing
         
+        file_size_mb = os.path.getsize(path) / (1024 * 1024)
         col_db, col_txt = st.columns(2)
         with col_db:
-            with open(path, "rb") as db_file:
-                st.download_button(
-                    label="📥 Download Pre-compiled Database (.db)",
-                    data=db_file,
-                    file_name=f"{name.replace(' ', '_').replace('.', '_')}_compiled.db",
-                    mime="application/octet-stream",
-                    help="Download this corpus as a pre-compiled DuckDB database.",
-                    use_container_width=True,
-                    key="dl_btn_full"
-                )
+            if file_size_mb <= 50:
+                with open(path, "rb") as db_file:
+                    st.download_button(
+                        label="📥 Download Pre-compiled Database (.db)",
+                        data=db_file,
+                        file_name=f"{name.replace(' ', '_').replace('.', '_')}_compiled.db",
+                        mime="application/octet-stream",
+                        help="Download this corpus as a pre-compiled DuckDB database.",
+                        use_container_width=True,
+                        key="dl_btn_full"
+                    )
+            else:
+                st.caption(f"💾 Database path: `{path}` ({file_size_mb:.1f} MB)")
         with col_txt:
             xml_cache_key = "xml_export_full"
             cached_xml = get_state(xml_cache_key)
@@ -661,10 +672,17 @@ def render_full_overview(name, path, stats, structure, error):
                 st.caption("Displaying top 100 tokens. Use the button below to download the full frequency list.")
                 st.dataframe(df, use_container_width=True, hide_index=True)
                 
-                with st.spinner("Compiling full frequency list for download..."):
-                    full_df = ov.get_top_frequencies_v2(path, limit=None, xml_where_clause=xml_where, xml_params=xml_params)
-                    full_df['Rel. Freq (per M)'] = (full_df['frequency'] / total * 1_000_000).round(2)
-                    st.download_button("⬇ Download Full Frequency List", data=df_to_excel_bytes(full_df), file_name=f"{name}_full_freq.xlsx")
+                # On-demand full frequency export to prevent blocking the WebSocket with a massive Excel file on load
+                if st.button("📊 Compile Full Frequency List for Download", key="btn_compile_full_freq_full"):
+                    with st.spinner("Compiling full frequency list for download..."):
+                        full_df = ov.get_top_frequencies_v2(path, limit=None, xml_where_clause=xml_where, xml_params=xml_params)
+                        full_df['Rel. Freq (per M)'] = (full_df['frequency'] / total * 1_000_000).round(2)
+                        st.download_button(
+                            "⬇ Download Full Frequency List (.xlsx)", 
+                            data=df_to_excel_bytes(full_df), 
+                            file_name=f"{name}_full_freq.xlsx",
+                            key="dl_full_freq_btn_ready"
+                        )
             else: st.info("No frequency data.")
 
         elif selected_tab == "Unique POS Tags":
@@ -2132,6 +2150,9 @@ def render_upload_ui():
                     if "finalizing" in text_lower: return 5
                 return -1
 
+            import time
+            last_progress_render_time = [0.0]
+
             def update_progress(val, text):
                 val = max(0.0, min(1.0, float(val)))
                 progress_bar.progress(val)
@@ -2140,6 +2161,12 @@ def render_upload_ui():
                     if not completed_logs or completed_logs[-1] != clean_text:
                         completed_logs.append(clean_text)
                         
+                current_time = time.time()
+                # Throttle DOM re-renders to at most once per 0.25 seconds or when completed to keep WebSocket responsive
+                if val < 1.0 and (current_time - last_progress_render_time[0]) < 0.25:
+                    return
+                last_progress_render_time[0] = current_time
+
                 current_step_idx = -1
                 if completed_logs:
                     current_step_idx = get_step_idx(completed_logs[-1], fmt)
@@ -2153,15 +2180,15 @@ def render_upload_ui():
                         lines.append(f"✅ **{step_name}**")
                     elif i == current_step_idx:
                         lines.append(f"🔄 **{step_name}...**")
-                        # Inject all logs for the current step under it
-                        for log in completed_logs:
-                            if get_step_idx(log, fmt) == current_step_idx:
-                                if "failed" in log.lower():
-                                    lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ _{log}_")
-                                elif log == completed_logs[-1] and val < 1.0:
-                                    lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;🔄 _{log}..._")
-                                else:
-                                    lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;✅ _{log}_")
+                        # Show only the last 3 logs for current step to prevent WebSocket frame explosion
+                        step_logs = [log for log in completed_logs if get_step_idx(log, fmt) == current_step_idx]
+                        for log in step_logs[-3:]:
+                            if "failed" in log.lower():
+                                lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ _{log}_")
+                            elif log == completed_logs[-1] and val < 1.0:
+                                lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;🔄 _{log}..._")
+                            else:
+                                lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;✅ _{log}_")
                     else:
                         lines.append(f"⏳ {step_name}")
                         

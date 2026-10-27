@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore", message=".*Examining the path of torch.classes raised.*")
+warnings.filterwarnings("ignore", category=UserWarning)
+
 import stanza
 import logging
 
@@ -374,7 +378,7 @@ def tag_text_with_treetagger(text, lang_code):
 
 def tag_text_with_stanza(text, lang_code, progress_callback=None, base_progress=0.0):
     """
-    Process text. Tries Custom HMM first, then TreeTagger, then SpaCy, then Stanza.
+    Process text. Tries TreeTagger first, then SpaCy, then Stanza, followed by Custom HMM and simple fallback.
     Returns a tuple (list of dicts, error_msg)
     """
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -385,9 +389,61 @@ def tag_text_with_stanza(text, lang_code, progress_callback=None, base_progress=
     if '_CUSTOM_TAGGERS' not in globals():
         _CUSTOM_TAGGERS = {}
         
+    # 1a. MeCab — used exclusively for Japanese
+    if lang_code == 'ja':
+        if progress_callback: progress_callback(base_progress, "Tagging Japanese with MeCab...")
+        mecab_results, mecab_err = tag_text_with_mecab(text)
+        if mecab_results is not None:
+            if progress_callback: progress_callback(base_progress, "Tagged with MeCab successfully!")
+            return mecab_results, None
+        if progress_callback: progress_callback(base_progress, f"MeCab failed: {mecab_err}. Trying SpaCy...")
+        print(f"MeCab Warning: {mecab_err}", flush=True)
+
+    # 1. Try TreeTagger (Prioritized first for all supported languages)
+    if progress_callback: progress_callback(base_progress, f"Tagging with TreeTagger...")
+    tt_results, tt_err = tag_text_with_treetagger(text, lang_code)
+    if tt_err:
+        if progress_callback: progress_callback(base_progress, f"Tagging with TreeTagger failed.")
+        print(f"TreeTagger Warning: {tt_err}", flush=True)
+    if tt_results is not None:
+        if progress_callback: progress_callback(base_progress, f"Tagged with TreeTagger successfully!")
+        return tt_results, None
+
+    # 2. Try SpaCy (Fallback if TreeTagger not available)
+    if progress_callback: progress_callback(base_progress, f"Tagging with SpaCy...")
+    spacy_results, spacy_err = tag_text_with_spacy(text, lang_code)
+    if spacy_err:
+        if progress_callback: progress_callback(base_progress, f"Tagging with SpaCy failed.")
+        print(f"SpaCy Warning: {spacy_err}", flush=True)
+    if spacy_results is not None:
+        if progress_callback: progress_callback(base_progress, f"Tagged with SpaCy successfully!")
+        return spacy_results, f"treetagger fail, switching to SpaCy. {tt_err}" if tt_err else None
+
+    # 3. Try Stanza if TreeTagger and SpaCy failed or weren't found
+    if progress_callback: progress_callback(base_progress, f"Tagging with Stanza...")
+    try:
+        print("Falling back to Stanza...", flush=True)
+        nlp = get_stanza_pipeline(lang_code)
+        if nlp:
+            # Use Stanza's native sentence splitting for better results
+            doc = nlp(text)
+            
+            results = []
+            for sent_id, stanza_sent in enumerate(doc.sentences, 1):
+                for word in stanza_sent.words:
+                    results.append({
+                        'token': word.text,
+                        'pos': word.upos, 
+                        'lemma': word.lemma if word.lemma else word.text,
+                        'sent_id': sent_id,
+                        'ent_type': ""
+                    })
+            return results, f"treetagger/spacy fail, switching to Stanza. {tt_err}" if tt_err else None
+    except Exception as e:
+        print(f"Stanza error for {lang_code}: {str(e)}")
+
+    # 4. Try Custom HMM Tagger fallback if TreeTagger/SpaCy/Stanza not available
     custom_tagger = _CUSTOM_TAGGERS.get(lang_code)
-    
-    # 0. Try Custom HMM Tagger first (fastest and custom trained)
     if custom_tagger is None:
         if os.path.exists(json_path):
             print(f"Found custom {lang_code}-hmm.json model. Using it as fast fallback...")
@@ -431,69 +487,16 @@ def tag_text_with_stanza(text, lang_code, progress_callback=None, base_progress=
                         'ent_type': ""
                     })
             if progress_callback: progress_callback(base_progress, f"Tagged with Custom Tagger successfully!")
-            return results, None
+            return results, f"treetagger/spacy/stanza fail, switching to Custom Tagger. {tt_err}" if tt_err else None
         except Exception as e:
             import traceback
             traceback.print_exc()
             if progress_callback: progress_callback(base_progress, f"Tagging with Custom Tagger failed.")
             print(f"Failed to tag with custom model: {e}", flush=True)
 
-    # 1a. MeCab — used exclusively for Japanese
-    if lang_code == 'ja':
-        if progress_callback: progress_callback(base_progress, "Tagging Japanese with MeCab...")
-        mecab_results, mecab_err = tag_text_with_mecab(text)
-        if mecab_results is not None:
-            if progress_callback: progress_callback(base_progress, "Tagged with MeCab successfully!")
-            return mecab_results, None
-        if progress_callback: progress_callback(base_progress, f"MeCab failed: {mecab_err}. Trying SpaCy...")
-        print(f"MeCab Warning: {mecab_err}", flush=True)
-
-    # 1b. Try TreeTagger (Prioritized as requested)
-    if progress_callback: progress_callback(base_progress, f"Tagging with TreeTagger...")
-    tt_results, tt_err = tag_text_with_treetagger(text, lang_code)
-    if tt_err:
-        if progress_callback: progress_callback(base_progress, f"Tagging with TreeTagger failed.")
-        print(f"TreeTagger Warning: {tt_err}", flush=True)
-    if tt_results is not None:
-        if progress_callback: progress_callback(base_progress, f"Tagged with TreeTagger successfully!")
-        return tt_results, None
-        
-    # 2. Try SpaCy (Fallback if TreeTagger not available)
-    if progress_callback: progress_callback(base_progress, f"Tagging with SpaCy...")
-    spacy_results, spacy_err = tag_text_with_spacy(text, lang_code)
-    if spacy_err:
-        if progress_callback: progress_callback(base_progress, f"Tagging with SpaCy failed.")
-        print(f"SpaCy Warning: {spacy_err}", flush=True)
-    if spacy_results is not None:
-        if progress_callback: progress_callback(base_progress, f"Tagged with SpaCy successfully!")
-        return spacy_results, None
-            
-    # 3. Try Stanza if Custom/TreeTagger/SpaCy failed or weren't found
-    if progress_callback: progress_callback(base_progress, f"Tagging with Stanza...")
-    try:
-        print("Falling back to Stanza...", flush=True)
-        nlp = get_stanza_pipeline(lang_code)
-        if nlp:
-            # Use Stanza's native sentence splitting for better results
-            doc = nlp(text)
-            
-            results = []
-            for sent_id, stanza_sent in enumerate(doc.sentences, 1):
-                for word in stanza_sent.words:
-                    results.append({
-                        'token': word.text,
-                        'pos': word.upos, 
-                        'lemma': word.lemma if word.lemma else word.text,
-                        'sent_id': sent_id,
-                        'ent_type': ""
-                    })
-            return results, f"treetagger/spacy/custom fail, switching to Stanza. {tt_err}" if tt_err else None
-    except Exception as e:
-        print(f"Stanza error for {lang_code}: {str(e)}")
-        
     # 5. Fallback to Simple Regex Tokenizer
     fallback_res, fallback_err = tag_text_simple_fallback(text)
-    return fallback_res, f"treetagger fail, switching to fallback. {tt_err}" if tt_err else fallback_err
+    return fallback_res, f"treetagger/spacy/stanza fail, switching to fallback. {tt_err}" if tt_err else fallback_err
 
 def tag_text_simple_fallback(text):
     """

@@ -82,9 +82,39 @@ def prepare_standalone_pyvis_html(net, height_px=550, bg_color="#222222"):
     </script>
     """
     if "</head>" in raw_html:
-        raw_html = raw_html.replace("</head>", dark_css_and_script + "</head>")
+        raw_html = raw_html.replace("</head>", dark_css_and_script + "</head>", 1)
     else:
         raw_html = dark_css_and_script + raw_html
+
+    # Auto-fit the view on load and after physics stabilises
+    fit_script = (
+        "<script>(function(){"
+        "var t=null;"
+        "function f(){try{network.redraw();network.fit({animation:false});}catch(e){}}"
+        "function sched(){clearTimeout(t);t=setTimeout(f,80);}"
+        "function init(){"
+        "if(typeof network==='undefined'){setTimeout(init,100);return;}"
+        "f();"
+        "network.on('stabilizationIterationsDone',f);"
+        "network.on('stabilized',f);"
+        "setTimeout(f,500);setTimeout(f,1500);setTimeout(f,3000);"
+        # Refit whenever the iframe/container becomes visible or changes size
+        "window.addEventListener('resize',sched);"
+        "if(window.ResizeObserver){"
+        "var el=document.getElementById('mynetwork')||document.body;"
+        "var ro=new ResizeObserver(function(){if(el.clientWidth>0&&el.clientHeight>0){sched();}});"
+        "ro.observe(el);ro.observe(document.documentElement);}"
+        "if(window.IntersectionObserver){"
+        "var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){sched();}});});"
+        "io.observe(document.body);}"
+        "}"
+        "if(document.readyState==='complete'){init();}else{window.addEventListener('load',init);}"
+        "})();</script>"
+    )
+    if "</body>" in raw_html:
+        raw_html = raw_html.replace("</body>", fit_script + "</body>", 1)
+    else:
+        raw_html += fit_script
 
     return raw_html
 

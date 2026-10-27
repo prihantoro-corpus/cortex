@@ -2,6 +2,11 @@
 maxUploadSize = 1000
 enableXsrfProtection = false
 enableCORS = false
+maxMessageSize = 1000
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false
 
 [theme]
 base = "dark"
